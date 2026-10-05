@@ -78,7 +78,39 @@ def parse_stats(raw):
         "Pixels_utilises": int(n_used),
         "Outliers_exclus": int(max(n_clear - n_used, 0)),
         "Clair_pct": round(n_clear / n_total * 100, 1) if n_total else None,
+        # Score Cloud Score+ moyen des pixels utilisés (probabilité d'être dégagé, 0–1)
+        "Score_clarte": round(w / n_used, 3) if (w and n_used) else None,
     }
+
+
+# ------------------------------------------------------------
+# Poids de fiabilité d'une mesure (0 à 1), dans l'esprit du « raw NDVI weight »
+# de KERMAP (dont la formule n'est pas publique). Produit de quatre facteurs :
+#   clarté      : part des pixels de la parcelle non masqués (Clair_pct / 100)
+#   score       : score Cloud Score+ moyen des pixels utilisés (voile résiduel)
+#   cohérence   : part des pixels clairs non exclus comme aberrants
+#   taille      : nombre de pixels utilisés, plein poids à partir de N_PIXELS_REF
+# ------------------------------------------------------------
+N_PIXELS_REF = 30          # 30 pixels de 10 m = 0,3 ha analysés
+RELIABILITY_LEVELS = [(0.8, "Bonne"), (0.5, "Moyenne"), (0.0, "Faible")]
+
+
+def reliability_weight(parsed):
+    if not parsed or not parsed["Pixels_utilises"] or parsed["Clair_pct"] is None:
+        return None
+    clarte = parsed["Clair_pct"] / 100
+    score = parsed["Score_clarte"] if parsed["Score_clarte"] is not None else 1.0
+    coherence = 1 - parsed["Outliers_exclus"] / parsed["Pixels_clairs"] if parsed["Pixels_clairs"] else 0
+    taille = min(1.0, parsed["Pixels_utilises"] / N_PIXELS_REF)
+    return round(max(0.0, min(1.0, clarte * score * coherence * taille)), 2)
+
+
+def reliability_level(weight, status):
+    if status != STATUS_OK:
+        return "Non exploitable"
+    if weight is None:
+        return "—"
+    return next(label for seuil, label in RELIABILITY_LEVELS if weight >= seuil)
 
 
 def quality_status(parsed, min_pixels, min_clear_pct):
@@ -108,7 +140,10 @@ def build_rows(ids, geoinfo, day_result, date_str, indicator_col,
         value = parsed[indicator_col] if (parsed and status == STATUS_OK) else None
         interp, couvert = classify_state(value)
 
-        row = {"ID": pid, "Date": date_str, "NDVI": value, "Statut": status,
+        weight = reliability_weight(parsed)
+        row = {"ID": pid, "Date": date_str, "NDVI": value,
+               "Poids": weight, "Fiabilite": reliability_level(weight, status),
+               "Statut": status,
                "Interpretation": interp if status == STATUS_OK else status,
                "Couvert": "Oui" if couvert is True else ("Non" if couvert is False else "—")}
         if parsed:

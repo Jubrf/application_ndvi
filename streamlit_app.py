@@ -20,7 +20,7 @@ from utils.vector_io import load_vector
 
 # Version affichée dans la barre latérale : à changer à chaque modification,
 # pour savoir quel code tourne réellement sur Streamlit Cloud.
-APP_VERSION = "v1.7 — 05/10/2026 15h00"
+APP_VERSION = "v1.8 — 05/10/2026 15h15"
 
 st.set_page_config(page_title="NDVI parcellaire", page_icon="🌱", layout="wide")
 st.title("🌱 NDVI – Analyse parcellaire Sentinel-2")
@@ -185,9 +185,9 @@ def stale_warning(ctx):
                 "L'indicateur et les seuils de qualité s'appliquent sans relancer.")
 
 
-DISPLAY_COLS = ["ID", "NDVI", "Interpretation", "Couvert", "Statut",
+DISPLAY_COLS = ["ID", "NDVI", "Poids", "Fiabilite", "Interpretation", "Couvert", "Statut",
                 "NDVI_median", "NDVI_pondere", "NDVI_moyen", "NDVI_ecart_type",
-                "EVI2_median", "Pixels_utilises", "Outliers_exclus", "Clair_pct",
+                "EVI2_median", "Pixels_utilises", "Outliers_exclus", "Clair_pct", "Score_clarte",
                 "Surface_ha", "Buffer_m", "Satellite", "Date"]
 
 
@@ -206,6 +206,13 @@ COLUMN_HELP = {
     "ID": "Identifiant de la parcelle (champ choisi au chargement).",
     "NDVI": "Valeur retenue pour l'interprétation : l'indicateur choisi dans la barre "
             "latérale (médiane par défaut). Vide si la mesure n'est pas exploitable.",
+    "Poids": "Poids de fiabilité de la mesure, de 0 à 1 (équivalent du « raw NDVI weight » "
+             "de KERMAP, formule propre à l'appli) = clarté × score Cloud Score+ moyen × "
+             "part de pixels non aberrants × facteur taille (plein à partir de 30 pixels).",
+    "Fiabilite": "Bonne (poids ≥ 0,8), Moyenne (0,5–0,8), Faible (< 0,5). "
+                 "Non exploitable si le statut n'est pas OK.",
+    "Score_clarte": "Score Cloud Score+ moyen des pixels utilisés (1 = parfaitement dégagé). "
+                    "Un score bas signale un voile ou une brume résiduelle.",
     "Interpretation": "Classe NDVI : < 0,20 sol nu ou non levé ; 0,20–0,25 levant ; "
                       "0,25–0,50 en développement ; ≥ 0,50 établi.",
     "Couvert": "Oui / Non / — (indéterminé ou mesure non exploitable).",
@@ -356,6 +363,7 @@ with tab1:
                 f"<b>{row['ID']}</b><br>"
                 f"{row['Interpretation']}<br>"
                 f"NDVI ({indicator_label.lower()}) : {fmt(row['NDVI'])}<br>"
+                f"Fiabilité : {row.get('Fiabilite', '—')} (poids {fmt(row.get('Poids'), 2)})<br>"
                 f"Pixels utilisés : {row.get('Pixels_utilises', '—')} · "
                 f"clairs : {fmt(row.get('Clair_pct'), 0, ' %')}"
             )
