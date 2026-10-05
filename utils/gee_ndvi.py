@@ -19,6 +19,7 @@ Chaîne de traitement d'une date :
      Le tout est calculé côté serveur en une seule requête getInfo.
 """
 import datetime
+import time
 
 import ee
 import streamlit as st
@@ -48,10 +49,24 @@ _MAX_RAW = 20000  # médiane/percentiles exacts jusqu'à 20 000 pixels (200 ha)
 # ----------------------------------------------------------
 # INITIALISATION GEE
 # ----------------------------------------------------------
+# Délai maximal d'une requête Earth Engine : au-delà, une erreur est levée
+# au lieu d'un blocage sans fin (le client peut retenter quelques fois).
+REQUEST_TIMEOUT_S = 90
+
+
+def log(msg):
+    """Ligne horodatée dans les logs du serveur (visibles dans « Manage app »)."""
+    print(f"[ndvi {datetime.datetime.now():%H:%M:%S}] {msg}", flush=True)
+
+
 @st.cache_resource
 def init_gee(service_account, private_key):
+    t0 = time.time()
+    log("Connexion à Earth Engine…")
     credentials = ee.ServiceAccountCredentials(service_account, key_data=private_key)
     ee.Initialize(credentials)
+    ee.data.setDeadline(REQUEST_TIMEOUT_S * 1000)
+    log(f"Earth Engine connecté en {time.time() - t0:.1f} s")
 
 
 # ----------------------------------------------------------
@@ -134,7 +149,10 @@ def list_dates(start, end, region_key, params_t, _region_geojson):
             "n_clear": n_clear, "n_cov": n_cov,
         })
 
+    t0 = time.time()
+    log(f"Recherche des dates {start} → {end}…")
     info = ee.FeatureCollection(prepared.map(_per_image)).getInfo()
+    log(f"Recherche des dates terminée en {time.time() - t0:.1f} s ({len(info.get('features', []))} images)")
 
     by_date = {}
     for f in info.get("features", []):
@@ -231,8 +249,11 @@ def compute_day_stats(date_str, geoms_key, params_t, _geojsons, _region_geojson)
         for i, gj in enumerate(_geojsons) if gj is not None
     ])
 
+    t0 = time.time()
+    log(f"Statistiques du {date_str} ({len(_geojsons)} parcelles)…")
     stats_info = _zonal_stats(day_img, proj, fc, params).getInfo()
     satellites = s2.aggregate_array("SPACECRAFT_NAME").distinct().getInfo()
+    log(f"Statistiques du {date_str} terminées en {time.time() - t0:.1f} s")
 
     stats = {}
     for f in stats_info["features"]:

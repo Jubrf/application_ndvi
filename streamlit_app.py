@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 
-from utils.gee_ndvi import DEFAULT_PARAMS, compute_day_stats, init_gee, list_dates
+from utils.gee_ndvi import DEFAULT_PARAMS, compute_day_stats, init_gee, list_dates, log
 from utils.geometry import looks_like_wgs84, prepare_all, region_geojson
 from utils.ndvi_processing import (
     INDICATORS,
@@ -18,14 +18,25 @@ from utils.ndvi_processing import (
 )
 from utils.vector_io import load_vector
 
+# Version affichée dans la barre latérale : à changer à chaque modification,
+# pour savoir quel code tourne réellement sur Streamlit Cloud.
+APP_VERSION = "v1.5 — 05/10/2026 14h45"
+
 st.set_page_config(page_title="NDVI parcellaire", page_icon="🌱", layout="wide")
+st.title("🌱 NDVI – Analyse parcellaire Sentinel-2")
+st.sidebar.caption(f"Version {APP_VERSION}")
+log(f"Script lancé ({APP_VERSION})")
 
 # ============================================================
 # INIT GEE
 # ============================================================
-init_gee(st.secrets["GEE_SERVICE_ACCOUNT"], st.secrets["GEE_PRIVATE_KEY"])
-
-st.title("🌱 NDVI – Analyse parcellaire Sentinel-2")
+with st.spinner("Connexion à Earth Engine…"):
+    try:
+        init_gee(st.secrets["GEE_SERVICE_ACCOUNT"], st.secrets["GEE_PRIVATE_KEY"])
+    except Exception as e:
+        log(f"Échec de la connexion Earth Engine : {type(e).__name__} — {e}")
+        st.error(f"Connexion à Earth Engine impossible : {type(e).__name__} — {e}")
+        st.stop()
 
 # ============================================================
 # PARAMÈTRES (barre latérale)
@@ -301,7 +312,7 @@ with tab1:
                 st.session_state.os_ctx = calc_context()
                 st.session_state.os_geoinfo = geoinfo
             except Exception as e:
-                st.error(f"Erreur Earth Engine : {e}")
+                st.error(f"Erreur Earth Engine (statistiques) : {type(e).__name__} — {e}")
 
     # ── Affichage ────────────────────────────────────────────
     if st.session_state.get("os_raw"):
@@ -366,8 +377,12 @@ with tab2:
         st.stop()
 
     if st.button("🔍 Rechercher les dates disponibles", key="mt_btn_search"):
-        st.session_state.mt_dates = list_dates(str(date_start), str(date_end),
-                                               file_hash, params_t, region)
+        try:
+            st.session_state.mt_dates = list_dates(str(date_start), str(date_end),
+                                                   file_hash, params_t, region)
+        except Exception as e:
+            st.session_state.mt_dates = None
+            st.error(f"Erreur Earth Engine (recherche des dates) : {type(e).__name__} — {e}")
 
     dates = st.session_state.get("mt_dates")
     if dates is not None:
@@ -400,7 +415,7 @@ with tab2:
                         try:
                             raws.append((str(d), run_analysis(str(d))))
                         except Exception as e:
-                            errors.append(f"{d:%d/%m/%Y} : {e}")
+                            errors.append(f"{d:%d/%m/%Y} : {type(e).__name__} — {e}")
                     bar.empty()
                     st.session_state.mt_raw = raws
                     st.session_state.mt_ctx = calc_context()
