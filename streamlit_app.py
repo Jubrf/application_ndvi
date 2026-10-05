@@ -177,8 +177,63 @@ def ordered(df):
     return df
 
 
-def to_csv(df):
-    return df.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
+COLUMN_HELP = {
+    "ID": "Identifiant de la parcelle (champ choisi au chargement).",
+    "NDVI": "Valeur retenue pour l'interprétation : l'indicateur choisi dans la barre "
+            "latérale (médiane par défaut). Vide si la mesure n'est pas exploitable.",
+    "Interpretation": "Classe NDVI : < 0,20 sol nu ou non levé ; 0,20–0,25 levant ; "
+                      "0,25–0,50 en développement ; ≥ 0,50 établi.",
+    "Couvert": "Oui / Non / — (indéterminé ou mesure non exploitable).",
+    "Statut": "OK : mesure exploitable. Nuageux : part de pixels clairs sous le seuil "
+              "(50 % par défaut). Trop peu de pixels : moins de pixels utilisés que le "
+              "minimum (10 par défaut). Hors image : parcelle hors de l'emprise. "
+              "Géométrie inexploitable : contour vide ou invalide.",
+    "NDVI_median": "Médiane du NDVI des pixels conservés (clairs, hors valeurs aberrantes).",
+    "NDVI_pondere": "Moyenne du NDVI où chaque pixel compte selon son score Cloud Score+ "
+                    "(probabilité d'être dégagé, de 0 à 1). Après masquage (score < 0,60 "
+                    "exclu), les poids vont de 0,60 à 1 : un pixel légèrement voilé compte moins.",
+    "NDVI_moyen": "Moyenne simple du NDVI des pixels conservés.",
+    "NDVI_ecart_type": "Écart-type du NDVI : hétérogénéité de la parcelle.",
+    "EVI2_median": "Médiane de l'EVI2, indice moins saturé que le NDVI sur couvert dense.",
+    "Pixels_utilises": "Pixels de 10 m réellement utilisés : clairs et hors valeurs aberrantes.",
+    "Outliers_exclus": "Pixels clairs exclus car aberrants (hors Q1 − 1,5·IQR / Q3 + 1,5·IQR).",
+    "Clair_pct": "Part des pixels de la parcelle (après buffer) non masqués : ni nuage, "
+                 "ni ombre, ni cirrus, ni neige, ni à moins de 20 m d'un nuage.",
+    "Surface_ha": "Surface de la parcelle d'origine (ha).",
+    "Buffer_m": "Buffer intérieur réellement appliqué (m), réduit sur les petites parcelles.",
+    "Satellite": "Satellite(s) Sentinel-2 de l'acquisition.",
+    "Date": "Date d'acquisition de l'image.",
+    "Delta_NDVI": "Écart avec la mesure exploitable précédente de la même parcelle.",
+    "Mesures_valides": "Nombre de dates exploitables pour la parcelle.",
+    "Tendance": "Hausse (> +0,10), Baisse (< −0,05) ou Stable, entre la première et la "
+                "dernière mesure exploitable.",
+    "Delta_total": "Écart entre la première et la dernière mesure exploitable.",
+}
+
+
+def column_config(df):
+    return {c: st.column_config.Column(help=h) for c, h in COLUMN_HELP.items() if c in df.columns}
+
+
+def to_excel(sheets):
+    """sheets : dict nom d'onglet -> DataFrame. Ajoute un onglet Lexique."""
+    import io
+    lexique = pd.DataFrame(
+        [{"Colonne": c, "Définition": h} for c, h in COLUMN_HELP.items()
+         if any(c in df.columns for df in sheets.values())])
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as xw:
+        for name, df in {**sheets, "Lexique": lexique}.items():
+            df.to_excel(xw, sheet_name=name, index=False)
+            ws = xw.sheets[name]
+            for i, col in enumerate(df.columns, start=1):
+                width = max([len(str(col))] + [len(str(v)) for v in df[col].head(200)])
+                ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = min(width + 2, 90)
+            ws.freeze_panes = "B2"
+    return buf.getvalue()
+
+
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 # ============================================================
@@ -262,9 +317,10 @@ with tab1:
 
         n_ok = int((df_os["Statut"] == STATUS_OK).sum())
         st.success(f"Résultats du {date_str} — {n_ok}/{len(df_os)} parcelles exploitables")
-        st.dataframe(df_os, hide_index=True)
-        st.download_button("⬇️ Exporter CSV", data=to_csv(df_os),
-                           file_name=f"ndvi_{date_str}.csv", mime="text/csv",
+        st.dataframe(df_os, hide_index=True, column_config=column_config(df_os))
+        st.caption("Survole un en-tête de colonne pour sa définition.")
+        st.download_button("⬇️ Exporter (Excel)", data=to_excel({"Résultats": df_os}),
+                           file_name=f"ndvi_{date_str}.xlsx", mime=XLSX_MIME,
                            key="os_dl")
 
         m = folium.Map(location=[(miny + maxy) / 2, (minx + maxx) / 2], zoom_start=14,
@@ -376,18 +432,14 @@ with tab2:
 
         st.subheader(f"Synthèse — NDVI ({indicator_label.lower()}) par parcelle et par date")
         st.caption("Cases vides : mesure non exploitable (nuages, trop peu de pixels).")
-        st.dataframe(pivot, hide_index=True)
+        st.dataframe(pivot, hide_index=True, column_config=column_config(pivot))
 
+        detail = ordered(df_long).assign(Delta_NDVI=df_long["Delta_NDVI"])
         with st.expander("Détail complet (toutes les dates × parcelles)"):
-            st.dataframe(ordered(df_long).assign(Delta_NDVI=df_long["Delta_NDVI"]),
-                         hide_index=True)
+            st.dataframe(detail, hide_index=True, column_config=column_config(detail))
 
-        c1, c2 = st.columns(2)
-        with c1:
-            st.download_button("⬇️ Exporter la synthèse (CSV)", data=to_csv(pivot),
-                               file_name=f"ndvi_synthese_{date_start}_{date_end}.csv",
-                               mime="text/csv", key="mt_dl_pivot")
-        with c2:
-            st.download_button("⬇️ Exporter le détail (CSV)", data=to_csv(df_long),
-                               file_name=f"ndvi_detail_{date_start}_{date_end}.csv",
-                               mime="text/csv", key="mt_dl_long")
+        st.download_button(
+            "⬇️ Exporter synthèse + détail (Excel)",
+            data=to_excel({"Synthèse": pivot, "Détail": detail}),
+            file_name=f"ndvi_temporel_{date_start}_{date_end}.xlsx",
+            mime=XLSX_MIME, key="mt_dl")
