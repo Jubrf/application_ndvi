@@ -1,184 +1,177 @@
-import ee
-from shapely.geometry import Polygon, MultiPolygon
-from shapely.ops import transform
+"""
+Post-traitement Python (sans GEE) : mise en forme des statistiques,
+statut qualité, interprétation agronomique, synthèse temporelle.
+"""
+import pandas as pd
+
+# ------------------------------------------------------------
+# Statut qualité d'une mesure parcelle × date
+# ------------------------------------------------------------
+STATUS_OK = "OK"
+STATUS_CLOUD = "Nuageux"
+STATUS_FEW = "Trop peu de pixels"
+STATUS_NOGEOM = "Géométrie inexploitable"
+STATUS_NODATA = "Hors image"
+
+# Indicateur utilisé pour l'interprétation
+INDICATORS = {
+    "Médiane": "NDVI_median",
+    "Moyenne pondérée qualité": "NDVI_pondere",
+    "Moyenne": "NDVI_moyen",
+}
+
+# ------------------------------------------------------------
+# Classification NDVI
+#   < 0.20      → Sol nu ou couvert non levé
+#   0.20–0.25   → Sol nu ou couvert levant  (zone limite)
+#   0.25–0.50   → Couvert en développement
+#   ≥ 0.50      → Couvert établi
+# ------------------------------------------------------------
+COLOR_MAP = {
+    "Sol nu ou couvert non levé": "#d73027",
+    "Sol nu ou couvert levant": "#fdae61",
+    "Couvert en développement": "#66bd63",
+    "Couvert établi": "#1a9850",
+}
+COLOR_INVALID = "#9e9e9e"
 
 
-# ============================================================
-# Conversion Shapely → Earth Engine
-# ============================================================
-def shapely_to_ee(geom):
-    def strip_z(x, y, z=None):
-        return (x, y)
-
-    geom2d = transform(strip_z, geom)
-
-    if isinstance(geom2d, Polygon):
-        coords = list(geom2d.exterior.coords)
-        return ee.Geometry.Polygon([coords])
-
-    if isinstance(geom2d, MultiPolygon):
-        parts = []
-        for poly in geom2d.geoms:
-            coords = list(poly.exterior.coords)
-            parts.append([coords])
-        return ee.Geometry.MultiPolygon(parts)
-
-    return None
+def classify_state(nd):
+    """Retourne (interprétation, couvert: bool|None)."""
+    if nd is None or pd.isna(nd):
+        return None, None
+    if nd < 0.20:
+        return "Sol nu ou couvert non levé", False
+    if nd < 0.25:
+        return "Sol nu ou couvert levant", None
+    if nd < 0.50:
+        return "Couvert en développement", True
+    return "Couvert établi", True
 
 
-# ============================================================
-# Zonal stats NDVI + EVI2 + qualité pixels — TOUTES LES PARCELLES
-# en un seul appel reduceRegions côté GEE.
-# ============================================================
-def zonal_stats_all(ndvi_img, evi2_img, features):
+def colorize(interpretation):
+    return COLOR_MAP.get(interpretation, COLOR_INVALID)
+
+
+def _r(v, n=3):
+    return round(float(v), n) if v is not None else None
+
+
+def parse_stats(raw):
+    """Propriétés brutes GEE d'une parcelle → valeurs lisibles."""
+    if raw is None:
+        return None
+    n_total = raw.get("n_total") or 0
+    n_clear = raw.get("n_clear") or 0
+    n_used = raw.get("NDVI_count") or 0
+    w = raw.get("W")
+    wndvi = raw.get("WNDVI")
+    wmean = wndvi / w if (w and wndvi is not None and n_used > 0) else None
+    return {
+        "NDVI_median": _r(raw.get("NDVI_median")),
+        "NDVI_pondere": _r(wmean),
+        "NDVI_moyen": _r(raw.get("NDVI_mean")),
+        "NDVI_ecart_type": _r(raw.get("NDVI_stdDev")),
+        "EVI2_median": _r(raw.get("EVI2_median")),
+        "Pixels_total": int(n_total),
+        "Pixels_clairs": int(n_clear),
+        "Pixels_utilises": int(n_used),
+        "Outliers_exclus": int(max(n_clear - n_used, 0)),
+        "Clair_pct": round(n_clear / n_total * 100, 1) if n_total else None,
+    }
+
+
+def quality_status(parsed, min_pixels, min_clear_pct):
+    if parsed is None:
+        return STATUS_NOGEOM
+    if parsed["Pixels_clairs"] == 0:
+        return STATUS_CLOUD if parsed["Pixels_total"] > 0 else STATUS_NODATA
+    if parsed["Clair_pct"] is not None and parsed["Clair_pct"] < min_clear_pct:
+        return STATUS_CLOUD
+    if parsed["Pixels_utilises"] < min_pixels:
+        return STATUS_FEW
+    return STATUS_OK
+
+
+def build_rows(ids, geoinfo, day_result, date_str, indicator_col,
+               min_pixels, min_clear_pct):
     """
-    ndvi_img  : ee.Image bande "NDVI"
-    evi2_img  : ee.Image bande "EVI2"
-    features  : list[dict] avec clés "geometry" (Shapely) et "properties"
-
-    Retourne list[dict] :
-      { num_ilot, nd_mean, evi2_mean, quality_pct }
+    ids        : identifiants des parcelles (ordre des features)
+    geoinfo    : sortie de geometry.prepare_all
+    day_result : sortie de gee_ndvi.compute_day_stats
     """
+    sats = ", ".join(s.replace("Sentinel-", "S") for s in day_result.get("satellites", []))
+    rows = []
+    for i, (pid, gi) in enumerate(zip(ids, geoinfo)):
+        parsed = parse_stats(day_result["stats"].get(i)) if gi["geojson"] else None
+        status = quality_status(parsed, min_pixels, min_clear_pct)
+        value = parsed[indicator_col] if (parsed and status == STATUS_OK) else None
+        interp, couvert = classify_state(value)
 
-    # ----------------------------------------------------------
-    # Construction de la FeatureCollection EE
-    # ----------------------------------------------------------
-    ee_features = []
-    for i, feat in enumerate(features):
-        geom    = feat["geometry"].buffer(0)
-        geom_ee = shapely_to_ee(geom)
-        if geom_ee is None:
-            continue
-        num_ilot = str(feat["properties"].get("NUM_ILOT", f"ILOT_{i}"))
-        ee_features.append(
-            ee.Feature(geom_ee, {"NUM_ILOT": num_ilot})
-        )
-
-    fc = ee.FeatureCollection(ee_features)
-
-    # ----------------------------------------------------------
-    # Image multi-bandes pour les moyennes : NDVI + EVI2
-    # ----------------------------------------------------------
-    stack_mean = (
-        ndvi_img.rename("NDVI")
-        .addBands(evi2_img.rename("EVI2"))
-    )
-
-    # Image pour compter les pixels totaux (masque désactivé)
-    # Bande séparée pour éviter les conflits de nommage.
-    stack_total = ndvi_img.unmask().rename("NDVI_total")
-
-    # ----------------------------------------------------------
-    # Deux appels reduceRegions séparés :
-    #   1) mean sur NDVI + EVI2  (pixels valides seulement)
-    #   2) count sur NDVI + NDVI_total  (valide vs total)
-    # Deux appels évitent les ambiguïtés de nommage du reducer combiné.
-    # Le coût reste bien inférieur à N appels individuels.
-    # ----------------------------------------------------------
-    fc_mean = stack_mean.reduceRegions(
-        collection=fc,
-        reducer=ee.Reducer.mean(),
-        scale=10,
-    )
-
-    fc_count_valid = ndvi_img.rename("NDVI").reduceRegions(
-        collection=fc,
-        reducer=ee.Reducer.count().setOutputs(["count_valid"]),
-        scale=10,
-    )
-
-    fc_count_total = stack_total.reduceRegions(
-        collection=fc,
-        reducer=ee.Reducer.count().setOutputs(["count_total"]),
-        scale=10,
-    )
-
-    # ----------------------------------------------------------
-    # Récupération (3 getInfo au lieu de N×3)
-    # ----------------------------------------------------------
-    info_mean        = fc_mean.getInfo()
-    info_count_valid = fc_count_valid.getInfo()
-    info_count_total = fc_count_total.getInfo()
-
-    # Index par NUM_ILOT
-    def index_by_ilot(info):
-        d = {}
-        for f in info["features"]:
-            key = str(f["properties"].get("NUM_ILOT", "?"))
-            d[key] = f["properties"]
-        return d
-
-    by_mean        = index_by_ilot(info_mean)
-    by_count_valid = index_by_ilot(info_count_valid)
-    by_count_total = index_by_ilot(info_count_total)
-
-    # ----------------------------------------------------------
-    # Reconstruction dans l'ordre original
-    # ----------------------------------------------------------
-    output = []
-    for feat in features:
-        num_ilot = str(feat["properties"].get("NUM_ILOT", "?"))
-
-        m  = by_mean.get(num_ilot, {})
-        cv = by_count_valid.get(num_ilot, {})
-        ct = by_count_total.get(num_ilot, {})
-
-        nd_mean   = m.get("NDVI",  None)
-        evi2_mean = m.get("EVI2",  None)
-        c_valid   = cv.get("count_valid", 0) or 0
-        c_total   = ct.get("count_total", 0) or 0
-
-        quality_pct = None
-        if c_total > 0:
-            quality_pct = round((c_valid / c_total) * 100, 1)
-
-        output.append({
-            "num_ilot"   : num_ilot,
-            "nd_mean"    : float(nd_mean)   if nd_mean   is not None else None,
-            "evi2_mean"  : float(evi2_mean) if evi2_mean is not None else None,
-            "quality_pct": quality_pct,
-        })
-
-    return output
+        row = {"ID": pid, "Date": date_str, "NDVI": value, "Statut": status,
+               "Interpretation": interp if status == STATUS_OK else status,
+               "Couvert": "Oui" if couvert is True else ("Non" if couvert is False else "—")}
+        if parsed:
+            row.update(parsed)
+        row.update({"Surface_ha": gi["area_ha"], "Buffer_m": gi["buffer_m"],
+                    "Satellite": sats})
+        rows.append(row)
+    return rows
 
 
-# ============================================================
-# Compat shim — conservé, non utilisé en prod.
-# ============================================================
-def zonal_stats_ndvi(ndvi_img, veg_mask, geom):
-    geom    = geom.buffer(0)
-    geom_ee = shapely_to_ee(geom)
-    if geom_ee is None:
-        return None, None, None
+# ------------------------------------------------------------
+# Synthèse temporelle (provisoire — refonte prévue à l'étape 2)
+# Δ entre la première et la dernière mesure valide de chaque parcelle.
+# ------------------------------------------------------------
+def compute_tendency(values):
+    """values : NDVI valides triés par date. Retourne (libellé, delta)."""
+    if len(values) < 2:
+        return "Indéterminé", None
+    delta = round(values[-1] - values[0], 3)
+    if delta > 0.10:
+        return "Hausse", delta
+    if delta < -0.05:
+        return "Baisse", delta
+    return "Stable", delta
 
-    nd_local  = ndvi_img.clip(geom_ee)
-    mean_dict = nd_local.reduceRegion(
-        reducer=ee.Reducer.mean(), geometry=geom_ee, scale=10, maxPixels=1e10
-    ).getInfo()
-    nd_mean = mean_dict.get("NDVI", None)
-    if nd_mean is not None:
-        nd_mean = float(nd_mean)
 
-    veg_prop = None
-    if veg_mask is not None:
-        veg_dict = veg_mask.clip(geom_ee).reduceRegion(
-            reducer=ee.Reducer.mean(), geometry=geom_ee, scale=10, maxPixels=1e10
-        ).getInfo()
-        veg_prop = veg_dict.get("VEG", None)
-        if veg_prop is not None:
-            veg_prop = float(veg_prop)
+def temporal_summary(df_long):
+    """
+    df_long : une ligne par parcelle × date (sortie de build_rows).
+    Ajoute Delta_NDVI (vs mesure valide précédente) et retourne
+    (df_long, pivot NDVI parcelle × date avec tendance).
+    """
+    df = df_long.copy()
+    df["_d"] = pd.to_datetime(df["Date"])
+    df = df.sort_values(["ID", "_d"]).reset_index(drop=True)
 
-    pixel_quality_pct = None
-    try:
-        c_valid = nd_local.reduceRegion(
-            reducer=ee.Reducer.count(), geometry=geom_ee, scale=10, maxPixels=1e10
-        ).getInfo().get("NDVI", 0) or 0
-        c_total = ndvi_img.unmask().clip(geom_ee).reduceRegion(
-            reducer=ee.Reducer.count(), geometry=geom_ee, scale=10, maxPixels=1e10
-        ).getInfo().get("NDVI", 0) or 0
-        if c_total > 0:
-            pixel_quality_pct = round((c_valid / c_total) * 100, 1)
-    except:
-        pixel_quality_pct = None
+    valid = df[df["Statut"] == STATUS_OK]
+    df["Delta_NDVI"] = valid.groupby("ID")["NDVI"].diff().round(3)
 
-    return nd_mean, veg_prop, pixel_quality_pct
+    pivot = (df.pivot_table(index="ID", columns="Date", values="NDVI",
+                            aggfunc="first", dropna=False)
+             .reindex(df["ID"].drop_duplicates()))
+    tend = {}
+    for pid, sub in valid.groupby("ID"):
+        tend[pid] = compute_tendency(sub["NDVI"].tolist())
+    pivot["Mesures_valides"] = [int(valid["ID"].eq(p).sum()) for p in pivot.index]
+    pivot["Tendance"] = [tend.get(p, ("Indéterminé", None))[0] for p in pivot.index]
+    pivot["Delta_total"] = [tend.get(p, ("Indéterminé", None))[1] for p in pivot.index]
+    pivot = pivot.reset_index()
+    pivot.columns.name = None
+
+    return df.drop(columns="_d"), pivot
+
+
+def unique_ids(raw_ids):
+    """Rend les identifiants uniques (suffixe _2, _3… sur les doublons)."""
+    seen, out = {}, []
+    for v in raw_ids:
+        v = str(v) if v is not None and str(v).strip() else "SANS_ID"
+        if v in seen:
+            seen[v] += 1
+            out.append(f"{v}_{seen[v]}")
+        else:
+            seen[v] = 1
+            out.append(v)
+    return out
