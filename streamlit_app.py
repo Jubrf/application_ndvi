@@ -143,6 +143,19 @@ def date_label(d):
     return f"{d['date']:%d/%m/%Y} — {clear}"
 
 
+def show_gee_error(e, context):
+    st.error(f"Erreur Earth Engine ({context}) : {type(e).__name__} — {e}")
+
+
+def safe_list_dates(start, end):
+    """Liste des dates ; affiche le message GEE complet en cas d'erreur et renvoie None."""
+    try:
+        return list_dates(str(start), str(end), file_hash, params_t, region)
+    except Exception as e:
+        show_gee_error(e, "recherche des dates")
+        return None
+
+
 def run_analysis(date_str):
     return compute_day_stats(date_str, geoms_key, params_t,
                              analysis_geojsons, region)
@@ -203,10 +216,11 @@ with tab1:
                    f"{min_clear} % de ciel clair sur les parcelles.")
         if st.button("Rechercher et analyser", key="os_btn_latest"):
             today = datetime.date.today()
-            dates = list_dates(str(today - datetime.timedelta(days=60)), str(today),
-                               file_hash, params_t, region)
-            usable = [d for d in dates if (d["clear_pct"] or 0) >= min_clear]
-            if usable:
+            dates = safe_list_dates(today - datetime.timedelta(days=60), today)
+            usable = [d for d in dates or [] if (d["clear_pct"] or 0) >= min_clear]
+            if dates is None:
+                pass
+            elif usable:
                 target = usable[0]
             elif dates:
                 target = max(dates, key=lambda d: d["clear_pct"] or 0)
@@ -230,8 +244,7 @@ with tab1:
                else datetime.date(year, month + 1, 1)) - datetime.timedelta(days=1)
 
         if st.button("Rechercher les dates disponibles", key="os_btn_search"):
-            st.session_state.os_dates = list_dates(str(start), str(end),
-                                                   file_hash, params_t, region)
+            st.session_state.os_dates = safe_list_dates(start, end)
 
         dates = st.session_state.get("os_dates")
         if dates is not None:
@@ -250,7 +263,7 @@ with tab1:
                 st.session_state.os_ctx = calc_context()
                 st.session_state.os_geoinfo = geoinfo
             except Exception as e:
-                st.error(f"Erreur Earth Engine : {e}")
+                show_gee_error(e, "statistiques zonales")
 
     # ── Affichage ────────────────────────────────────────────
     if st.session_state.get("os_raw"):
@@ -314,8 +327,7 @@ with tab2:
         st.stop()
 
     if st.button("🔍 Rechercher les dates disponibles", key="mt_btn_search"):
-        st.session_state.mt_dates = list_dates(str(date_start), str(date_end),
-                                               file_hash, params_t, region)
+        st.session_state.mt_dates = safe_list_dates(date_start, date_end)
 
     dates = st.session_state.get("mt_dates")
     if dates is not None:
@@ -348,7 +360,7 @@ with tab2:
                         try:
                             raws.append((str(d), run_analysis(str(d))))
                         except Exception as e:
-                            errors.append(f"{d:%d/%m/%Y} : {e}")
+                            errors.append(f"{d:%d/%m/%Y} : {type(e).__name__} — {e}")
                     bar.empty()
                     st.session_state.mt_raw = raws
                     st.session_state.mt_ctx = calc_context()
