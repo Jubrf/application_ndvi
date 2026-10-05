@@ -139,8 +139,10 @@ def fmt(v, digits=3, suffix=""):
 
 
 def date_label(d):
-    clear = f"{d['clear_pct']:.0f} % clair" if d["clear_pct"] is not None else "clair ?"
-    return f"{d['date']:%d/%m/%Y} — {clear}"
+    if d["clear_pct"] is None:
+        return f"❔ {d['date']:%d/%m/%Y} — ciel clair inconnu"
+    mark = "✅" if d["clear_pct"] >= min_clear else "⚠️"
+    return f"{mark} {d['date']:%d/%m/%Y} — {d['clear_pct']:.0f} % de ciel clair"
 
 
 def run_analysis(date_str):
@@ -247,56 +249,50 @@ tab1, tab2 = st.tabs(["📅 Analyse à une date", "📈 Analyse temporelle"])
 with tab1:
     st.header("Analyse NDVI — une date")
 
-    mode = st.radio("Sélection de la date",
-                    ["Dernière date exploitable", "Choisir dans un mois"],
-                    key="os_mode", horizontal=True)
-
     target = None  # dict de list_dates
 
-    if mode == "Dernière date exploitable":
-        st.caption(f"Date la plus récente des 60 derniers jours avec au moins "
-                   f"{min_clear} % de ciel clair sur les parcelles.")
-        if st.button("Rechercher et analyser", key="os_btn_latest"):
-            today = datetime.date.today()
-            dates = list_dates(str(today - datetime.timedelta(days=60)), str(today),
-                               file_hash, params_t, region)
-            usable = [d for d in dates if (d["clear_pct"] or 0) >= min_clear]
-            if usable:
-                target = usable[0]
-            elif dates:
-                target = max(dates, key=lambda d: d["clear_pct"] or 0)
-                st.warning(f"Aucune date à {min_clear} % de ciel clair ou plus : "
-                           f"date la moins nuageuse retenue ({date_label(target)}).")
-            else:
-                st.error("Aucune image Sentinel-2 sur les 60 derniers jours.")
-    else:
-        months = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet",
-                  "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
-        c1, c2 = st.columns(2)
-        with c1:
-            year = st.selectbox("Année",
-                                list(range(datetime.date.today().year, 2016, -1)),
-                                key="os_year")
-        with c2:
-            month = st.selectbox("Mois", range(1, 13), key="os_month",
-                                 format_func=lambda m: months[m - 1])
-        start = datetime.date(year, month, 1)
-        end = (datetime.date(year + 1, 1, 1) if month == 12
-               else datetime.date(year, month + 1, 1)) - datetime.timedelta(days=1)
+    months = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet",
+              "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+    today = datetime.date.today()
+    c1, c2 = st.columns(2)
+    with c1:
+        year = st.selectbox("Année", list(range(today.year, 2016, -1)), key="os_year")
+    with c2:
+        month = st.selectbox("Mois", range(1, 13), index=today.month - 1, key="os_month",
+                             format_func=lambda m: months[m - 1])
+    start = datetime.date(year, month, 1)
+    end = min((datetime.date(year + 1, 1, 1) if month == 12
+               else datetime.date(year, month + 1, 1)) - datetime.timedelta(days=1), today)
 
-        if st.button("Rechercher les dates disponibles", key="os_btn_search"):
-            st.session_state.os_dates = list_dates(str(start), str(end),
-                                                   file_hash, params_t, region)
+    if start > today:
+        st.info("Ce mois n'a pas encore commencé.")
+    elif st.button("Rechercher les dates disponibles", key="os_btn_search"):
+        st.session_state.os_query = (start, end)
 
-        dates = st.session_state.get("os_dates")
-        if dates is not None:
-            if not dates:
-                st.error("Aucune image Sentinel-2 sur cette période.")
-            else:
-                choice = st.selectbox(f"{len(dates)} date(s) disponible(s)", dates,
-                                      format_func=date_label, key="os_sel_date")
-                if st.button("Analyser cette date", key="os_btn_load"):
-                    target = choice
+    # La liste suit les réglages du masque : recalculée (une requête) s'ils changent.
+    if st.session_state.get("os_query") == (start, end):
+        try:
+            dates = list_dates(str(start), str(end), file_hash, params_t, region)
+        except Exception as e:
+            dates = None
+            st.error(f"Erreur Earth Engine (recherche des dates) : {type(e).__name__} — {e}")
+
+        if dates is not None and not dates:
+            st.error("Aucune image Sentinel-2 sur cette période.")
+        elif dates:
+            n_ok = sum(1 for d in dates if (d["clear_pct"] or 0) >= min_clear)
+            st.caption(
+                f"{len(dates)} image(s) en {months[month - 1].lower()} {year} : "
+                f"{n_ok} ✅ à {min_clear} % de ciel clair ou plus, "
+                f"{len(dates) - n_ok} ⚠️ en dessous. Le % porte sur l'ensemble des parcelles : "
+                f"une date ⚠️ peut rester exploitable pour certaines (voir leur statut après analyse)."
+            )
+            default = next((i for i, d in enumerate(dates)
+                            if (d["clear_pct"] or 0) >= min_clear), 0)
+            choice = st.selectbox("Date à analyser", dates, index=default,
+                                  format_func=date_label, key=f"os_sel_{start}")
+            if st.button("Analyser cette date", key="os_btn_load"):
+                target = choice
 
     if target is not None:
         with st.spinner(f"Calcul des statistiques du {target['date']:%d/%m/%Y}…"):
