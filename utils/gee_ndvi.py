@@ -142,7 +142,10 @@ def list_dates(start, end, region_key, params_t, _region_geojson):
     start, end : "YYYY-MM-DD" (end inclus)
     region_key / params_t : clés de cache (hashables)
     Retourne une liste triée (récent → ancien) de dicts :
-      {"date": datetime.date, "clear_pct": float|None, "n_images": int}
+      {"date": datetime.date, "clear_pct": float|None, "cover_pct": float|None,
+       "n_images": int}
+    clear_pct : % de pixels clairs parmi les pixels couverts par l'image
+    cover_pct : % de la zone des parcelles couverte par l'image (0 = hors emprise)
     """
     params = dict(params_t)
     region = ee.Geometry(_region_geojson)
@@ -150,11 +153,16 @@ def list_dates(start, end, region_key, params_t, _region_geojson):
     _, prepared = _collections(region, start, end_excl, params)
 
     # 1. Identifiants et dates des images (requête légère)
+    # + nombre total de pixels (20 m) de la zone des parcelles, pour la part couverte
     meta = ee.Dictionary({
         "ids": prepared.aggregate_array("system:index"),
         "times": prepared.aggregate_array("system:time_start"),
+        "total": ee.Image.constant(1).rename("ALL").reduceRegion(
+            reducer=ee.Reducer.count(), geometry=region, scale=20,
+            maxPixels=1e10, tileScale=4).get("ALL"),
     }).getInfo()
     ids, times = meta.get("ids") or [], meta.get("times") or []
+    total_px = meta.get("total") or 0
     if not ids:
         return []
     date_of = {i: datetime.datetime.fromtimestamp(t / 1000, datetime.timezone.utc).date().isoformat()
@@ -203,9 +211,13 @@ def list_dates(start, end, region_key, params_t, _region_geojson):
 
     out = []
     for d, agg in by_date.items():
+        # Part de la zone des parcelles couverte par des données ce jour-là.
+        # Plusieurs tuiles qui se recouvrent sont additionnées : plafonné à 100 %.
+        cover = min(agg["cov"] / total_px * 100, 100.0) if total_px else None
         out.append({
             "date": datetime.date.fromisoformat(d),
             "clear_pct": round(agg["clear"] / agg["cov"] * 100, 1) if agg["cov"] else None,
+            "cover_pct": round(cover, 1) if cover is not None else None,
             "n_images": agg["n"],
         })
     return sorted(out, key=lambda x: x["date"], reverse=True)

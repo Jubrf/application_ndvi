@@ -20,7 +20,7 @@ from utils.vector_io import load_vector
 
 # Version affichée dans la barre latérale : à changer à chaque modification,
 # pour savoir quel code tourne réellement sur Streamlit Cloud.
-APP_VERSION = "v1.6 — 05/10/2026 14h50"
+APP_VERSION = "v1.7 — 05/10/2026 15h00"
 
 st.set_page_config(page_title="NDVI parcellaire", page_icon="🌱", layout="wide")
 st.title("🌱 NDVI – Analyse parcellaire Sentinel-2")
@@ -149,11 +149,23 @@ def fmt(v, digits=3, suffix=""):
         return "—"
 
 
+def covers(d):
+    """L'image couvre-t-elle au moins une partie des parcelles ?"""
+    return bool(d.get("cover_pct")) and d.get("clear_pct") is not None
+
+
+def usable(d, threshold):
+    return covers(d) and d["clear_pct"] >= threshold
+
+
 def date_label(d):
-    if d["clear_pct"] is None:
-        return f"❔ {d['date']:%d/%m/%Y} — ciel clair inconnu"
+    if not covers(d):
+        return f"⛔ {d['date']:%d/%m/%Y} — ne couvre pas les parcelles"
     mark = "✅" if d["clear_pct"] >= min_clear else "⚠️"
-    return f"{mark} {d['date']:%d/%m/%Y} — {d['clear_pct']:.0f} % de ciel clair"
+    label = f"{mark} {d['date']:%d/%m/%Y} — {d['clear_pct']:.0f} % de ciel clair"
+    if d.get("cover_pct") is not None and d["cover_pct"] < 99.5:
+        label += f" · couvre {d['cover_pct']:.0f} % des parcelles"
+    return label
 
 
 def run_analysis(date_str):
@@ -291,15 +303,17 @@ with tab1:
         if dates is not None and not dates:
             st.error("Aucune image Sentinel-2 sur cette période.")
         elif dates:
-            n_ok = sum(1 for d in dates if (d["clear_pct"] or 0) >= min_clear)
+            n_ok = sum(1 for d in dates if usable(d, min_clear))
+            n_out = sum(1 for d in dates if not covers(d))
             st.caption(
-                f"{len(dates)} image(s) en {months[month - 1].lower()} {year} : "
+                f"{len(dates)} date(s) en {months[month - 1].lower()} {year} : "
                 f"{n_ok} ✅ à {min_clear} % de ciel clair ou plus, "
-                f"{len(dates) - n_ok} ⚠️ en dessous. Le % porte sur l'ensemble des parcelles : "
+                f"{len(dates) - n_ok - n_out} ⚠️ en dessous, {n_out} ⛔ hors emprise des parcelles. "
+                f"Le % de ciel clair porte sur la partie des parcelles couverte par l'image : "
                 f"une date ⚠️ peut rester exploitable pour certaines (voir leur statut après analyse)."
             )
-            default = next((i for i, d in enumerate(dates)
-                            if (d["clear_pct"] or 0) >= min_clear), 0)
+            default = next((i for i, d in enumerate(dates) if usable(d, min_clear)),
+                           next((i for i, d in enumerate(dates) if covers(d)), 0))
             choice = st.selectbox("Date à analyser", dates, index=default,
                                   format_func=date_label, key=f"os_sel_{start}")
             if st.button("Analyser cette date", key="os_btn_load"):
@@ -396,7 +410,7 @@ with tab2:
                 help="Une date partiellement nuageuse peut rester exploitable pour une partie "
                      "des parcelles : le contrôle final se fait parcelle par parcelle.",
             )
-            default = [d["date"] for d in dates if (d["clear_pct"] or 0) >= presel]
+            default = [d["date"] for d in dates if usable(d, presel)]
             by_date = {d["date"]: d for d in dates}
             sel = st.multiselect(
                 f"{len(dates)} date(s) trouvée(s), {len(default)} présélectionnée(s)",
