@@ -111,6 +111,16 @@ def _collections(region, start, end, params):
 # Une réduction par image (pas de boucle imbriquée dates × images),
 # agrégation par date côté Python.
 # ----------------------------------------------------------
+def _first(d, suffix, exact):
+    """Valeur de la clé `exact` ou de la première clé finissant par `suffix` (0 si absente)."""
+    if d.get(exact) is not None:
+        return d[exact]
+    for k, v in d.items():
+        if k.endswith(suffix) and v is not None:
+            return v
+    return 0
+
+
 @st.cache_data(show_spinner="Recherche des dates disponibles…", ttl=6 * 3600)
 def list_dates(start, end, region_key, params_t, _region_geojson):
     """
@@ -124,17 +134,44 @@ def list_dates(start, end, region_key, params_t, _region_geojson):
     end_excl = (datetime.date.fromisoformat(end) + datetime.timedelta(days=1)).isoformat()
     _, prepared = _collections(region, start, end_excl, params)
 
-    def _per_image(img):
-        clear = img.select("CLEAR")
-        common = {"geometry": region, "scale": 20, "maxPixels": 1e9, "tileScale": 4}
-        n_clear = clear.reduceRegion(reducer=ee.Reducer.sum(), **common).get("CLEAR")
-        n_cov = clear.reduceRegion(reducer=ee.Reducer.count(), **common).get("CLEAR")
-        return ee.Feature(None, {
-            "date": ee.Date(img.get("system:time_start")).format("YYYY-MM-dd"),
-            "n_clear": n_clear, "n_cov": n_cov,
-        })
+    # 1. Identifiants et dates des images (requête légère)
+    meta = ee.Dictionary({
+        "ids": prepared.aggregate_array("system:index"),
+        "times": prepared.aggregate_array("system:time_start"),
+    }).getInfo()
+    ids, times = meta.get("ids") or [], meta.get("times") or []
+    if not ids:
+        return []
+    date_of = {i: datetime.datetime.fromtimestamp(t / 1000, datetime.timezone.utc).date().isoformat()
+               for i, t in zip(ids, times)}
 
-    info = ee.FeatureCollection(prepared.map(_per_image)).getInfo()
+    # 2. Pixels clairs / couverts par image.
+    # Toutes les images sont empilées en une image multi-bandes (toBands) et
+    # réduites en UNE SEULE opération : pas de réduction par image lancée en
+    # parallèle (cause de « Too many concurrent aggregations » sur un mois chargé).
+    common = {"geometry": region, "scale": 20, "maxPixels": 1e10, "tileScale": 4}
+    reducer = ee.Reducer.sum().combine(ee.Reducer.count(), sharedInputs=True)
+    per_image = {}
+    try:
+        stats = prepared.select("CLEAR").toBands().reduceRegion(reducer=reducer, **common).getInfo()
+        for key, val in stats.items():
+            if key.endswith("_CLEAR_sum"):
+                img_id = key[: -len("_CLEAR_sum")]
+                per_image[img_id] = (val or 0, stats.get(f"{img_id}_CLEAR_count") or 0)
+        if not per_image and len(ids) == 1:  # une seule bande : sorties éventuellement non préfixées
+            per_image[ids[0]] = (_first(stats, "_sum", "sum"), _first(stats, "_count", "count"))
+    except ee.EEException:
+        # Repli : une requête simple par image, l'une après l'autre (plus lent, sans parallélisme)
+        img_list = prepared.select("CLEAR").toList(len(ids))
+        for k, img_id in enumerate(ids):
+            d = ee.Image(img_list.get(k)).reduceRegion(reducer=reducer, **common).getInfo()
+            per_image[img_id] = (_first(d, "_sum", "sum"), _first(d, "_count", "count"))
+
+    info = {"features": [
+        {"properties": {"date": date_of[i], "n_clear": per_image.get(i, (0, 0))[0],
+                        "n_cov": per_image.get(i, (0, 0))[1]}}
+        for i in ids
+    ]}
 
     by_date = {}
     for f in info.get("features", []):
