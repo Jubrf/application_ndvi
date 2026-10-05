@@ -19,6 +19,7 @@ Chaîne de traitement d'une date :
      Le tout est calculé côté serveur en une seule requête getInfo.
 """
 import datetime
+import time
 
 import ee
 import streamlit as st
@@ -48,33 +49,45 @@ _MAX_RAW = 20000  # médiane/percentiles exacts jusqu'à 20 000 pixels (200 ha)
 # ----------------------------------------------------------
 # INITIALISATION GEE
 # ----------------------------------------------------------
+# Délai maximal d'une requête Earth Engine : au-delà, une erreur est levée
+# au lieu d'un blocage sans fin (le client peut retenter quelques fois).
+REQUEST_TIMEOUT_S = 90
+
+
+def log(msg):
+    """Ligne horodatée dans les logs du serveur (visibles dans « Manage app »)."""
+    print(f"[ndvi {datetime.datetime.now():%H:%M:%S}] {msg}", flush=True)
+
+
 @st.cache_resource
 def init_gee(service_account, private_key):
+    t0 = time.time()
+    log("Connexion à Earth Engine…")
     credentials = ee.ServiceAccountCredentials(service_account, key_data=private_key)
     ee.Initialize(credentials)
+    ee.data.setDeadline(REQUEST_TIMEOUT_S * 1000)
+    log(f"Earth Engine connecté en {time.time() - t0:.1f} s")
 
 
 # ----------------------------------------------------------
 # PRÉPARATION D'UNE IMAGE : masque + indices
+# Important : aucune opération sur collection à l'intérieur des fonctions
+# appliquées par map() (sinon « Too many concurrent aggregations »).
+# Le score Cloud Score+ est rattaché par linkCollection (jointure).
 # ----------------------------------------------------------
-def _make_prepare(cs_col, cs_threshold, cloud_buffer_m):
+def _make_prepare(cs_threshold, cloud_buffer_m):
     """
     Retourne une fonction img -> image avec les bandes :
       NDVI, EVI2, W (score de clarté) : masquées hors pixels clairs
       CLEAR : 1 = clair, 0 = rejeté (masquée hors emprise de l'image)
     """
-    # Repli si une image n'a pas (encore) de Cloud Score+ : score = 1,
-    # seul le masque SCL s'applique alors.
-    fallback = ee.ImageCollection([ee.Image.constant(1).rename(CS_BAND).toFloat()])
     n_excl = len(SCL_EXCLUDE)
 
     def _prepare(img):
         img = ee.Image(img)
-        cs = ee.Image(
-            cs_col.filter(ee.Filter.eq("system:index", img.get("system:index")))
-            .merge(fallback)
-            .first()
-        ).select(CS_BAND)
+        # Image sans Cloud Score+ associé : bande masquée → score 1,
+        # seul le masque SCL s'applique alors.
+        cs = img.select(CS_BAND).unmask(1)
 
         scl_bad = img.select("SCL").remap(SCL_EXCLUDE, [1] * n_excl, 0)
         bad = cs.lt(cs_threshold).Or(scl_bad).unmask(0)
@@ -104,110 +117,167 @@ def _collections(region, start, end, params):
           .filterBounds(region).filterDate(start, end))
     cs = (ee.ImageCollection(CSPLUS_COLLECTION)
           .filterBounds(region).filterDate(start, end))
-    prepare = _make_prepare(cs, params["cs_threshold"], params["cloud_buffer_m"])
-    return s2, s2.map(prepare)
+    prepare = _make_prepare(params["cs_threshold"], params["cloud_buffer_m"])
+    return s2, s2.linkCollection(cs, [CS_BAND]).map(prepare)
 
 
 # ----------------------------------------------------------
 # LISTE DES DATES + % DE CIEL CLAIR SUR LES PARCELLES
+# Une réduction par image (pas de boucle imbriquée dates × images),
+# agrégation par date côté Python.
 # ----------------------------------------------------------
+def _first(d, suffix, exact):
+    """Valeur de la clé `exact` ou de la première clé finissant par `suffix` (0 si absente)."""
+    if d.get(exact) is not None:
+        return d[exact]
+    for k, v in d.items():
+        if k.endswith(suffix) and v is not None:
+            return v
+    return 0
+
+
 @st.cache_data(show_spinner="Recherche des dates disponibles…", ttl=6 * 3600)
 def list_dates(start, end, region_key, params_t, _region_geojson):
     """
     start, end : "YYYY-MM-DD" (end inclus)
     region_key / params_t : clés de cache (hashables)
     Retourne une liste triée (récent → ancien) de dicts :
-      {"date": datetime.date, "clear_pct": float|None, "n_images": int}
+      {"date": datetime.date, "clear_pct": float|None, "cover_pct": float|None,
+       "n_images": int}
+    clear_pct : % de pixels clairs parmi les pixels couverts par l'image
+    cover_pct : % de la zone des parcelles couverte par l'image (0 = hors emprise)
     """
     params = dict(params_t)
     region = ee.Geometry(_region_geojson)
     end_excl = (datetime.date.fromisoformat(end) + datetime.timedelta(days=1)).isoformat()
-    s2, prepared = _collections(region, start, end_excl, params)
+    _, prepared = _collections(region, start, end_excl, params)
 
-    dates = (s2.aggregate_array("system:time_start")
-             .map(lambda t: ee.Date(t).format("YYYY-MM-dd"))
-             .distinct())
+    # 1. Identifiants et dates des images (requête légère)
+    # + nombre total de pixels (20 m) de la zone des parcelles, pour la part couverte
+    meta = ee.Dictionary({
+        "ids": prepared.aggregate_array("system:index"),
+        "times": prepared.aggregate_array("system:time_start"),
+        "total": ee.Image.constant(1).rename("ALL").reduceRegion(
+            reducer=ee.Reducer.count(), geometry=region, scale=20,
+            maxPixels=1e10, tileScale=4).get("ALL"),
+    }).getInfo()
+    ids, times = meta.get("ids") or [], meta.get("times") or []
+    total_px = meta.get("total") or 0
+    if not ids:
+        return []
+    date_of = {i: datetime.datetime.fromtimestamp(t / 1000, datetime.timezone.utc).date().isoformat()
+               for i, t in zip(ids, times)}
 
-    def _per_date(d):
-        d0 = ee.Date.parse("YYYY-MM-dd", d)
-        sub = prepared.filterDate(d0, d0.advance(1, "day"))
-        frac = (sub.select("CLEAR").max()
-                .reduceRegion(reducer=ee.Reducer.mean(), geometry=region,
-                              scale=20, maxPixels=1e9, tileScale=4)
-                .get("CLEAR"))
-        return ee.Feature(None, {"date": d, "clear": frac, "n": sub.size()})
+    # 2. Pixels clairs / couverts par image.
+    # Toutes les images sont empilées en une image multi-bandes (toBands) et
+    # réduites en UNE SEULE opération : pas de réduction par image lancée en
+    # parallèle (cause de « Too many concurrent aggregations » sur un mois chargé).
+    common = {"geometry": region, "scale": 20, "maxPixels": 1e10, "tileScale": 4}
+    reducer = ee.Reducer.sum().combine(ee.Reducer.count(), sharedInputs=True)
+    per_image = {}
+    t0 = time.time()
+    log(f"Recherche des dates {start} → {end} ({len(ids)} images, réduction unique)…")
+    try:
+        stats = prepared.select("CLEAR").toBands().reduceRegion(reducer=reducer, **common).getInfo()
+        for key, val in stats.items():
+            if key.endswith("_CLEAR_sum"):
+                img_id = key[: -len("_CLEAR_sum")]
+                per_image[img_id] = (val or 0, stats.get(f"{img_id}_CLEAR_count") or 0)
+        if not per_image and len(ids) == 1:  # une seule bande : sorties éventuellement non préfixées
+            per_image[ids[0]] = (_first(stats, "_sum", "sum"), _first(stats, "_count", "count"))
+    except ee.EEException as e:
+        log(f"Réduction unique refusée ({e}) : repli image par image")
+        # Repli : une requête simple par image, l'une après l'autre (plus lent, sans parallélisme)
+        img_list = prepared.select("CLEAR").toList(len(ids))
+        for k, img_id in enumerate(ids):
+            d = ee.Image(img_list.get(k)).reduceRegion(reducer=reducer, **common).getInfo()
+            per_image[img_id] = (_first(d, "_sum", "sum"), _first(d, "_count", "count"))
 
-    info = ee.FeatureCollection(dates.map(_per_date)).getInfo()
+    log(f"Recherche des dates terminée en {time.time() - t0:.1f} s")
 
-    out = []
+    info = {"features": [
+        {"properties": {"date": date_of[i], "n_clear": per_image.get(i, (0, 0))[0],
+                        "n_cov": per_image.get(i, (0, 0))[1]}}
+        for i in ids
+    ]}
+
+    by_date = {}
     for f in info.get("features", []):
         p = f["properties"]
-        clear = p.get("clear")
+        agg = by_date.setdefault(p["date"], {"clear": 0.0, "cov": 0.0, "n": 0})
+        agg["clear"] += p.get("n_clear") or 0
+        agg["cov"] += p.get("n_cov") or 0
+        agg["n"] += 1
+
+    out = []
+    for d, agg in by_date.items():
+        # Part de la zone des parcelles couverte par des données ce jour-là.
+        # Plusieurs tuiles qui se recouvrent sont additionnées : plafonné à 100 %.
+        cover = min(agg["cov"] / total_px * 100, 100.0) if total_px else None
         out.append({
-            "date": datetime.date.fromisoformat(p["date"]),
-            "clear_pct": round(clear * 100, 1) if clear is not None else None,
-            "n_images": p.get("n", 0),
+            "date": datetime.date.fromisoformat(d),
+            "clear_pct": round(agg["clear"] / agg["cov"] * 100, 1) if agg["cov"] else None,
+            "cover_pct": round(cover, 1) if cover is not None else None,
+            "n_images": agg["n"],
         })
     return sorted(out, key=lambda x: x["date"], reverse=True)
 
 
 # ----------------------------------------------------------
 # STATISTIQUES ZONALES D'UNE DATE
+# reduceRegions traite toutes les parcelles en une passe.
+#   1. comptages (pixels clairs / total) et quartiles NDVI
+#   2. bornes de Tukey par parcelle, rastérisées (reduceToImage)
+#   3. stats finales sur les pixels conservés
 # ----------------------------------------------------------
-def _num_or(d, key, default):
-    v = d.get(key, default)
+def _num_or(f, key, default):
+    v = f.get(key)
     return ee.Number(ee.Algorithms.If(ee.Algorithms.IsEqual(v, None), default, v))
 
 
 def _zonal_stats(day_img, proj, fc, params):
     k = params["iqr_k"]
     floor = params["iqr_floor"]
+    rr = {"crs": proj, "tileScale": 2}
 
-    all_px = ee.Image.constant(1).rename("ALL")
-    count_red = ee.Reducer.count().unweighted()
-    quart_red = ee.Reducer.percentile([25, 75], maxRaw=_MAX_RAW).unweighted()
+    ndvi = day_img.select("NDVI")
+    all_px = ee.Image.constant(1).rename("NTOTAL")
+
+    # 1. Comptages + quartiles
+    fc1 = (ndvi.rename("NCLEAR").addBands(all_px)
+           .reduceRegions(collection=fc, reducer=ee.Reducer.count().unweighted(), **rr))
+    fc1 = (day_img.select(["NDVI", "EVI2"])
+           .reduceRegions(collection=fc1,
+                          reducer=ee.Reducer.percentile([25, 75], maxRaw=_MAX_RAW).unweighted(),
+                          **rr))
+
+    # 2. Bornes de Tukey (sans pixel valide : bornes neutres)
+    def _bounds(f):
+        p25 = _num_or(f, "NDVI_p25", -10)
+        p75 = _num_or(f, "NDVI_p75", 10)
+        iqr = p75.subtract(p25).max(floor)
+        return f.set({"lo": p25.subtract(iqr.multiply(k)),
+                      "hi": p75.add(iqr.multiply(k))})
+
+    fc1 = fc1.map(_bounds)
+    lo = fc1.reduceToImage(["lo"], ee.Reducer.first()).rename("lo").unmask(-10)
+    hi = fc1.reduceToImage(["hi"], ee.Reducer.first()).rename("hi").unmask(10)
+    keep = ndvi.gte(lo).And(ndvi.lte(hi))
+    filt = day_img.select(["NDVI", "EVI2", "W"]).updateMask(keep)
+
+    # 3. Statistiques finales
     final_red = (ee.Reducer.median(maxRaw=_MAX_RAW)
                  .combine(ee.Reducer.mean(), sharedInputs=True)
                  .combine(ee.Reducer.stdDev(), sharedInputs=True)
                  .combine(ee.Reducer.count(), sharedInputs=True)
                  .unweighted())
-    sum_red = ee.Reducer.sum().unweighted()
+    fc2 = filt.select(["NDVI", "EVI2"]).reduceRegions(collection=fc1, reducer=final_red, **rr)
+    fc3 = (filt.select("NDVI").multiply(filt.select("W")).rename("WNDVI")
+           .addBands(filt.select("W"))
+           .reduceRegions(collection=fc2, reducer=ee.Reducer.sum().unweighted(), **rr))
 
-    ndvi = day_img.select("NDVI")
-
-    def _stats(feat):
-        g = feat.geometry()
-        common = {"geometry": g, "crs": proj, "maxPixels": 1e9}
-
-        counts = ee.Dictionary(ndvi.addBands(all_px).reduceRegion(reducer=count_red, **common))
-        quart = ee.Dictionary(day_img.select(["NDVI", "EVI2"])
-                              .reduceRegion(reducer=quart_red, **common))
-
-        # Bornes de Tukey ; sans pixel valide, bornes neutres (aucun filtrage)
-        p25 = _num_or(quart, "NDVI_p25", -10)
-        p75 = _num_or(quart, "NDVI_p75", 10)
-        iqr = p75.subtract(p25).max(floor)
-        lo = p25.subtract(iqr.multiply(k))
-        hi = p75.add(iqr.multiply(k))
-
-        keep = ndvi.gte(lo).And(ndvi.lte(hi))
-        filt = day_img.select(["NDVI", "EVI2", "W"]).updateMask(keep)
-
-        stats = ee.Dictionary(filt.select(["NDVI", "EVI2"])
-                              .reduceRegion(reducer=final_red, **common))
-        wsum = ee.Dictionary(
-            filt.select("NDVI").multiply(filt.select("W")).rename("WNDVI")
-            .addBands(filt.select("W"))
-            .reduceRegion(reducer=sum_red, **common))
-
-        return ee.Feature(
-            ee.Feature(None, {"idx": feat.get("idx")})
-            .set(stats)
-            .set(wsum)
-            .set({"n_clear": counts.get("NDVI"), "n_total": counts.get("ALL"),
-                  "lo": lo, "hi": hi}))
-
-    return fc.map(_stats)
+    # Sans géométrie dans la réponse (plus léger)
+    return fc3.map(lambda f: ee.Feature(None, f.toDictionary()))
 
 
 @st.cache_data(show_spinner=False, ttl=6 * 3600, max_entries=200)
@@ -230,13 +300,16 @@ def compute_day_stats(date_str, geoms_key, params_t, _geojsons, _region_geojson)
         for i, gj in enumerate(_geojsons) if gj is not None
     ])
 
-    result = ee.Dictionary({
-        "stats": _zonal_stats(day_img, proj, fc, params),
-        "satellites": s2.aggregate_array("SPACECRAFT_NAME").distinct(),
-    }).getInfo()
+    t0 = time.time()
+    log(f"Statistiques du {date_str} ({len(_geojsons)} parcelles)…")
+    stats_info = _zonal_stats(day_img, proj, fc, params).getInfo()
+    satellites = s2.aggregate_array("SPACECRAFT_NAME").distinct().getInfo()
+    log(f"Statistiques du {date_str} terminées en {time.time() - t0:.1f} s")
 
     stats = {}
-    for f in result["stats"]["features"]:
+    for f in stats_info["features"]:
         props = f["properties"]
+        props["n_clear"] = props.get("NCLEAR")
+        props["n_total"] = props.get("NTOTAL")
         stats[int(props["idx"])] = props
-    return {"stats": stats, "satellites": result.get("satellites", [])}
+    return {"stats": stats, "satellites": satellites}

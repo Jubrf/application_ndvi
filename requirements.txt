@@ -6,3 +6,4 @@ folium
 streamlit-folium
 pyproj
 pyshp
+openpyxl
