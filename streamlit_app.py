@@ -19,18 +19,13 @@ from utils.ndvi_processing import (
 from utils.vector_io import load_vector
 
 st.set_page_config(page_title="NDVI parcellaire", page_icon="🌱", layout="wide")
-st.title("🌱 NDVI – Analyse parcellaire Sentinel-2")
-print("[ndvi] script démarré", flush=True)
 
 # ============================================================
 # INIT GEE
 # ============================================================
-try:
-    init_gee(st.secrets["GEE_SERVICE_ACCOUNT"], st.secrets["GEE_PRIVATE_KEY"])
-except Exception as e:
-    st.error(f"Connexion à Earth Engine impossible : {type(e).__name__} — {e}")
-    st.stop()
-print("[ndvi] Earth Engine initialisé", flush=True)
+init_gee(st.secrets["GEE_SERVICE_ACCOUNT"], st.secrets["GEE_PRIVATE_KEY"])
+
+st.title("🌱 NDVI – Analyse parcellaire Sentinel-2")
 
 # ============================================================
 # PARAMÈTRES (barre latérale)
