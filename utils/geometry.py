@@ -99,3 +99,8 @@ def looks_like_wgs84(features):
                 and -90 <= miny <= 90 and -90 <= maxy <= 90):
             return False
     return True
+
+
+def outline_geojson(geom):
+    """Contour d'origine de la parcelle (WGS84, sans Z), pour l'affichage."""
+    return mapping(_strip_z(geom).buffer(0))

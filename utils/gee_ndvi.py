@@ -313,3 +313,47 @@ def compute_day_stats(date_str, geoms_key, params_t, _geojsons, _region_geojson)
         props["n_total"] = props.get("NTOTAL")
         stats[int(props["idx"])] = props
     return {"stats": stats, "satellites": satellites}
+
+
+# ----------------------------------------------------------
+# VIGNETTE SATELLITE D'UNE PARCELLE (couleurs naturelles)
+# Une seule requête légère (getThumbURL) : l'image est servie par Google
+# directement au navigateur. Le lien expire après quelques heures.
+# ----------------------------------------------------------
+THUMB_MARGIN_M = 150      # marge autour de la parcelle
+THUMB_SIZE_PX = 512
+
+
+@st.cache_data(show_spinner=False, ttl=2 * 3600, max_entries=300)
+def parcel_thumbnail(date_str, parcel_key, params_t, _parcel_geojson, _analysis_geojson,
+                     show_mask=True):
+    """
+    Retourne l'URL d'une image PNG de la parcelle à la date donnée :
+      couleurs naturelles (B4, B3, B2) · pixels masqués en magenta (option)
+      · contour blanc : parcelle · contour jaune : zone analysée (après buffer).
+    """
+    params = dict(params_t)
+    parcel = ee.Geometry(_parcel_geojson)
+    region = parcel.buffer(THUMB_MARGIN_M).bounds()
+    d0 = ee.Date(date_str)
+    s2, prepared = _collections(region, d0, d0.advance(1, "day"), params)
+
+    img = (s2.select(["B4", "B3", "B2"]).mosaic()
+           .visualize(min=0, max=2500, gamma=1.2))
+    if show_mask:
+        masked = prepared.select("CLEAR").max().eq(0).selfMask()
+        img = img.blend(masked.visualize(palette=["ff00ff"], opacity=0.45))
+    outline = (ee.Image().byte()
+               .paint(ee.FeatureCollection([ee.Feature(parcel)]), 1, 2)
+               .visualize(palette=["ffffff"]))
+    img = img.blend(outline)
+    if _analysis_geojson:
+        inner = (ee.Image().byte()
+                 .paint(ee.FeatureCollection([ee.Feature(ee.Geometry(_analysis_geojson))]), 1, 1)
+                 .visualize(palette=["ffff00"]))
+        img = img.blend(inner)
+
+    t0 = time.time()
+    url = img.getThumbURL({"region": region, "dimensions": THUMB_SIZE_PX, "format": "png"})
+    log(f"Vignette du {date_str} générée en {time.time() - t0:.1f} s")
+    return url

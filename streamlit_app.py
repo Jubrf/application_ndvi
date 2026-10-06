@@ -6,8 +6,9 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 
-from utils.gee_ndvi import DEFAULT_PARAMS, compute_day_stats, init_gee, list_dates, log
-from utils.geometry import looks_like_wgs84, prepare_all, region_geojson
+from utils.gee_ndvi import (DEFAULT_PARAMS, compute_day_stats, init_gee, list_dates, log,
+                             parcel_thumbnail)
+from utils.geometry import looks_like_wgs84, outline_geojson, prepare_all, region_geojson
 from utils.charts import parcel_chart
 from utils.ndvi_processing import (
     DEFAULT_THRESHOLDS,
@@ -23,7 +24,7 @@ from utils.vector_io import load_vector
 
 # Version affichée dans la barre latérale : à changer à chaque modification,
 # pour savoir quel code tourne réellement sur Streamlit Cloud.
-APP_VERSION = "v2.1 — 06/10/2026"
+APP_VERSION = "v2.2 — 06/10/2026"
 
 st.set_page_config(page_title="NDVI parcellaire", page_icon="🌱", layout="wide")
 st.title("🌱 NDVI – Analyse parcellaire Sentinel-2")
@@ -349,6 +350,34 @@ def phase_map(items, key, legend_extra=None, height=520):
     st_folium(m, height=height, use_container_width=True, key=key, returned_objects=[])
 
 
+def satellite_view(pid, date_str, key):
+    """Vignette couleurs naturelles d'une parcelle à une date (bouton puis affichage)."""
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        show_mask = st.checkbox("Pixels masqués en magenta", value=True, key=f"{key}_mask",
+                                help="Nuages, ombres, cirrus et marge autour des nuages, "
+                                     "selon les réglages du masque.")
+        if st.button("Afficher l'image", key=f"{key}_btn"):
+            st.session_state[key] = (pid, date_str, show_mask, params_t, geoms_key)
+    if st.session_state.get(key) != (pid, date_str, show_mask, params_t, geoms_key):
+        return
+    idx = ids.index(pid)
+    with c2:
+        with st.spinner("Génération de l'image…"):
+            try:
+                url = parcel_thumbnail(date_str, f"{geoms_key}|{idx}", params_t,
+                                       outline_geojson(features[idx]["geometry"]),
+                                       analysis_geojsons[idx], show_mask)
+            except Exception as e:
+                st.error(f"Erreur Earth Engine (image) : {type(e).__name__} — {e}")
+                return
+        st.image(url, width=480)
+        st.caption(f"Sentinel-2 du {pd.Timestamp(date_str):%d/%m/%Y}, couleurs naturelles · "
+                   "contour blanc : parcelle · contour jaune : zone analysée (après buffer)"
+                   + (" · magenta : pixels masqués" if show_mask else "")
+                   + ". Lien temporaire (quelques heures).")
+
+
 # ============================================================
 # ONGLETS
 # ============================================================
@@ -448,6 +477,10 @@ with tab1:
                             f"clairs : {fmt(row.get('Clair_pct'), 0, ' %')}"),
             })
         phase_map(items, key="os_map", legend_extra=[("Non exploitable", COLOR_INVALID)])
+
+        with st.expander("🛰️ Image satellite d'une parcelle à cette date"):
+            pid_os = st.selectbox("Parcelle", list(df_os["ID"]), key="os_thumb_pid")
+            satellite_view(pid_os, date_str, key="os_thumb")
 
 
 # ╔══════════════════════════════════════════════════════════╗
@@ -593,6 +626,23 @@ with tab2:
         st.caption("● mesure retenue · ○ mesure écartée (survol : motif) · trait plein : courbe "
                    "lissée · pointillé : interpolation à plus de 15 jours de toute mesure · "
                    "lignes tiretées : seuils.")
+
+        with st.expander(f"🛰️ Image satellite de la parcelle {pid}"):
+            d_img = d_pid[~d_pid["Statut"].isin(["Hors image", "Géométrie inexploitable"])]
+            if d_img.empty:
+                st.info("Aucune image ne couvre cette parcelle sur la période.")
+            else:
+                opts = list(d_img.itertuples(index=False))
+
+                def _lab(r):
+                    v = r.NDVI if r.Retenue == "Oui" else getattr(r, "NDVI_brut", None)
+                    txt = f"{r.Date:%d/%m/%Y} — NDVI {fmt(v).replace('.', ',')}"
+                    return txt + (" · retenue" if r.Retenue == "Oui" else f" · écartée ({r.Motif})")
+
+                kept_idx = [i for i, r in enumerate(opts) if r.Retenue == "Oui"]
+                r_sel = st.selectbox("Date", opts, index=kept_idx[-1] if kept_idx else len(opts) - 1,
+                                     format_func=_lab, key=f"mt_thumb_date_{pid}")
+                satellite_view(pid, r_sel.Date.strftime("%Y-%m-%d"), key="mt_thumb")
 
         with st.expander(f"Mesures de la parcelle {pid}"):
             d_view = pick(d_pid.assign(Date=d_pid["Date"].dt.date), DETAIL_COLS)
