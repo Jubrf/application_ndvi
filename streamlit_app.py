@@ -13,6 +13,8 @@ from utils.ndvi_processing import (
     DEFAULT_THRESHOLDS,
     STATUS_OK,
     build_rows,
+    COLOR_INVALID,
+    COLOR_MAP,
     colorize,
     unique_ids,
 )
@@ -21,7 +23,7 @@ from utils.vector_io import load_vector
 
 # Version affichée dans la barre latérale : à changer à chaque modification,
 # pour savoir quel code tourne réellement sur Streamlit Cloud.
-APP_VERSION = "v2.0 — 06/10/2026"
+APP_VERSION = "v2.1 — 06/10/2026"
 
 st.set_page_config(page_title="NDVI parcellaire", page_icon="🌱", layout="wide")
 st.title("🌱 NDVI – Analyse parcellaire Sentinel-2")
@@ -311,6 +313,42 @@ def to_excel(sheets):
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
+def phase_map(items, key, legend_extra=None, height=520):
+    """
+    Carte des parcelles colorées par phase.
+    items : une entrée par parcelle (dans l'ordre de `features`) :
+            {"id", "color", "tooltip" (HTML), "opacity"}
+    Chaque parcelle est une couche nommée par son identifiant (liste des couches).
+    """
+    m = folium.Map(location=[(miny + maxy) / 2, (minx + maxx) / 2], zoom_start=14, tiles=None)
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri World Imagery", name="Fond satellite").add_to(m)
+    folium.TileLayer("OpenStreetMap", name="Fond plan").add_to(m)
+    for feat, it in zip(features, items):
+        folium.GeoJson(
+            feat["geometry"].__geo_interface__,
+            name=str(it["id"]),
+            style_function=lambda x, c=it["color"], o=it.get("opacity", 0.6): {
+                "fillColor": c, "color": "black", "weight": 1, "fillOpacity": o},
+            tooltip=folium.Tooltip(it["tooltip"]),
+        ).add_to(m)
+    folium.LayerControl(collapsed=True).add_to(m)
+
+    entries = [(lab, col) for lab, col in COLOR_MAP.items()] + (legend_extra or [])
+    rows_html = "".join(
+        f'<div style="display:flex;align-items:center;gap:6px;margin:2px 0">'
+        f'<span style="width:14px;height:14px;background:{col};opacity:.75;'
+        f'border:1px solid #333;display:inline-block"></span>{lab}</div>'
+        for lab, col in entries)
+    legend = folium.Element(
+        '<div style="position:absolute;bottom:24px;left:12px;z-index:1000;'
+        'background:rgba(255,255,255,.92);color:#222;padding:8px 10px;border-radius:6px;'
+        f'font:12px/1.3 sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.3)">{rows_html}</div>')
+    m.get_root().html.add_child(legend)
+    st_folium(m, height=height, use_container_width=True, key=key, returned_objects=[])
+
+
 # ============================================================
 # ONGLETS
 # ============================================================
@@ -396,31 +434,20 @@ with tab1:
             data=to_excel({"Résultats": df_os, "Technique": pick(df_all, TECH_COLS)}),
             file_name=f"ndvi_{date_str}.xlsx", mime=XLSX_MIME, key="os_dl")
 
-        m = folium.Map(location=[(miny + maxy) / 2, (minx + maxx) / 2], zoom_start=14,
-                       tiles=None)
-        folium.TileLayer(
-            tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-            attr="Esri World Imagery", name="Satellite").add_to(m)
-        folium.TileLayer("OpenStreetMap", name="Plan").add_to(m)
-        for feat, (_, row) in zip(features, df_os.iterrows()):
-            color = colorize(row["Phase"]) if row["Statut"] == STATUS_OK else colorize(None)
-            tooltip = (
-                f"<b>{row['ID']}</b><br>"
-                f"{row['Phase']}<br>"
-                f"NDVI : {fmt(row['NDVI'])}<br>"
-                f"Fiabilité : {row.get('Fiabilite', '—')} (poids {fmt(row.get('Poids'), 2)})<br>"
-                f"Pixels utilisés : {row.get('Pixels_utilises', '—')} · "
-                f"clairs : {fmt(row.get('Clair_pct'), 0, ' %')}"
-            )
-            folium.GeoJson(
-                feat["geometry"].__geo_interface__,
-                style_function=lambda x, c=color: {"fillColor": c, "color": "black",
-                                                   "weight": 1, "fillOpacity": 0.6},
-                tooltip=tooltip,
-            ).add_to(m)
-        folium.LayerControl().add_to(m)
-        st_folium(m, height=520, use_container_width=True, key="os_map",
-                  returned_objects=[])
+        items = []
+        for _, row in df_os.iterrows():
+            ok = row["Statut"] == STATUS_OK
+            items.append({
+                "id": row["ID"],
+                "color": colorize(row["Phase"]) if ok else COLOR_INVALID,
+                "tooltip": (f"<b>{row['ID']}</b><br>{row['Phase']}<br>"
+                            f"NDVI : {fmt(row['NDVI'])}<br>"
+                            f"Fiabilité : {row.get('Fiabilite', '—')} "
+                            f"(poids {fmt(row.get('Poids'), 2)})<br>"
+                            f"Pixels utilisés : {row.get('Pixels_utilises', '—')} · "
+                            f"clairs : {fmt(row.get('Clair_pct'), 0, ' %')}"),
+            })
+        phase_map(items, key="os_map", legend_extra=[("Non exploitable", COLOR_INVALID)])
 
 
 # ╔══════════════════════════════════════════════════════════╗
@@ -570,6 +597,43 @@ with tab2:
         with st.expander(f"Mesures de la parcelle {pid}"):
             d_view = pick(d_pid.assign(Date=d_pid["Date"].dt.date), DETAIL_COLS)
             st.dataframe(d_view, hide_index=True, column_config=column_config(d_view))
+
+        # ── Carte des phases à une date ──────────────────────
+        st.subheader("Carte des phases à une date")
+        if courbes.empty:
+            st.info("Aucune courbe disponible : pas de mesure retenue sur la période.")
+        else:
+            last_curve = courbes["Date"].max().date()
+            map_date = st.slider("Date affichée", min_value=p_start, max_value=p_end,
+                                 value=min(max(last_curve, p_start), p_end),
+                                 format="DD/MM/YYYY", key="mt_map_date")
+            day = courbes[courbes["Date"] == pd.Timestamp(map_date)].set_index("ID")
+            items, n_unc, n_none = [], 0, 0
+            for _, srow in synthese.iterrows():
+                pid_m = srow["ID"]
+                if pid_m in day.index:
+                    r = day.loc[pid_m]
+                    unc = bool(r["Incertain"])
+                    n_unc += unc
+                    items.append({
+                        "id": pid_m, "color": colorize(r["Phase"]), "opacity": 0.35 if unc else 0.65,
+                        "tooltip": (f"<b>{pid_m}</b><br>{r['Phase']}<br>"
+                                    f"NDVI lissé : {fmt(r['NDVI_lisse'])}"
+                                    + ("<br><i>Interpolé : aucune mesure à moins de 15 jours</i>"
+                                       if unc else "")),
+                    })
+                else:
+                    n_none += 1
+                    items.append({
+                        "id": pid_m, "color": COLOR_INVALID, "opacity": 0.5,
+                        "tooltip": (f"<b>{pid_m}</b><br>Pas de courbe à cette date<br>"
+                                    "(avant la 1re ou après la dernière mesure retenue)"),
+                    })
+            st.caption(
+                f"Phase de la courbe lissée de chaque parcelle au {map_date:%d/%m/%Y}. "
+                f"Teinte atténuée : valeur interpolée loin de toute mesure ({n_unc} parcelle(s)). "
+                f"Gris : pas de courbe à cette date ({n_none} parcelle(s)).")
+            phase_map(items, key="mt_map", legend_extra=[("Pas de courbe à cette date", COLOR_INVALID)])
 
         pivot = (detail[detail["Retenue"] == "Oui"]
                  .assign(Date=lambda x: x["Date"].dt.strftime("%Y-%m-%d"))
