@@ -21,11 +21,12 @@ from utils.ndvi_processing import (
     unique_ids,
 )
 from utils.timeseries import DEFAULT_SETTINGS, analyse_all
-from utils.vector_io import load_vector
+from utils.session_io import build_session_zip, read_session_zip
+from utils.vector_io import _load_vector_from_bytes
 
 # Version affichée dans la barre latérale : à changer à chaque modification,
 # pour savoir quel code tourne réellement sur Streamlit Cloud.
-APP_VERSION = "v2.3 — 06/10/2026"
+APP_VERSION = "v2.4 — 06/10/2026"
 
 st.set_page_config(page_title="NDVI parcellaire", page_icon="🌱", layout="wide")
 st.title("🌱 NDVI – Analyse parcellaire Sentinel-2")
@@ -45,45 +46,59 @@ with st.spinner("Connexion à Earth Engine…"):
 
 # ============================================================
 # PARAMÈTRES (barre latérale)
+# Valeurs gardées en session (clés set_*) pour pouvoir les restaurer
+# à l'ouverture d'une analyse enregistrée.
 # ============================================================
+SETTING_DEFAULTS = {
+    "set_thr": DEFAULT_THRESHOLDS, "set_buffer": 10,
+    "set_cs": DEFAULT_PARAMS["cs_threshold"], "set_cloudbuf": DEFAULT_PARAMS["cloud_buffer_m"],
+    "set_iqr": DEFAULT_PARAMS["iqr_k"], "set_minclear": 50, "set_minpix": 10,
+    "set_minw": DEFAULT_SETTINGS["min_weight"], "set_smooth": DEFAULT_SETTINGS["smooth_days"],
+}
+_pending = st.session_state.pop("pending_restore", None)
+if _pending:
+    st.session_state.update(_pending)
+for _k, _v in SETTING_DEFAULTS.items():
+    st.session_state.setdefault(_k, _v)
+
 with st.sidebar:
     st.header("Paramètres d'analyse")
     low, high = st.slider(
-        "Seuils d'interprétation (NDVI)", 0.0, 1.0, DEFAULT_THRESHOLDS, 0.01,
+        "Seuils d'interprétation (NDVI)", 0.0, 1.0, step=0.01, key="set_thr",
         help="Sous le 1er seuil : sol nu. Entre les deux : couvert peu développé. "
              "Au-dessus du 2nd : couvert bien développé. S'appliquent sans relancer l'analyse.",
     )
     if high - low < 0.05:
         st.warning("Les deux seuils sont très proches.")
     buffer_m = st.select_slider(
-        "Buffer intérieur (m)", options=[0, 5, 10, 15, 20], value=10,
+        "Buffer intérieur (m)", options=[0, 5, 10, 15, 20], key="set_buffer",
         help="Retire une bande en bordure de parcelle (haies, chemins, voisins). "
              "Réduit automatiquement pour les petites parcelles.",
     )
     with st.expander("Masque nuages et qualité"):
         cs_threshold = st.slider(
-            "Seuil Cloud Score+", 0.40, 0.85, DEFAULT_PARAMS["cs_threshold"], 0.05,
+            "Seuil Cloud Score+", 0.40, 0.85, step=0.05, key="set_cs",
             help="Pixels sous ce score rejetés (nuages, ombres, brume). "
                  "Plus haut = plus strict.",
         )
         cloud_buffer_m = st.select_slider(
-            "Marge autour des nuages (m)", options=[0, 10, 20, 40, 60],
-            value=DEFAULT_PARAMS["cloud_buffer_m"],
+            "Marge autour des nuages (m)", options=[0, 10, 20, 40, 60], key="set_cloudbuf",
         )
         iqr_k = st.select_slider(
             "Exclusion des valeurs aberrantes (k × IQR)", options=[1.0, 1.5, 2.0, 3.0],
-            value=DEFAULT_PARAMS["iqr_k"],
+            key="set_iqr",
             help="Pixels hors [Q1 − k·IQR ; Q3 + k·IQR] exclus. Plus haut = moins d'exclusions.",
         )
-        min_clear = st.slider("Part minimale de pixels clairs (%)", 0, 100, 50, 5)
-        min_pixels = st.number_input("Nombre minimal de pixels utilisés", 1, 500, 10)
+        min_clear = st.slider("Part minimale de pixels clairs (%)", 0, 100, step=5,
+                              key="set_minclear")
+        min_pixels = st.number_input("Nombre minimal de pixels utilisés", 1, 500,
+                                     key="set_minpix")
     with st.expander("Courbe temporelle"):
         min_weight = st.slider(
-            "Poids de fiabilité minimal d'une mesure", 0.0, 1.0,
-            DEFAULT_SETTINGS["min_weight"], 0.05,
+            "Poids de fiabilité minimal d'une mesure", 0.0, 1.0, step=0.05, key="set_minw",
             help="Les mesures sous ce poids sont écartées de la courbe (affichées en gris).")
         smooth_days = st.select_slider(
-            "Lissage (jours)", options=[3, 4, 6, 8, 10, 15], value=DEFAULT_SETTINGS["smooth_days"],
+            "Lissage (jours)", options=[3, 4, 6, 8, 10, 15], key="set_smooth",
             help="Plus la valeur est grande, plus la courbe est lisse, mais plus elle réagit "
                  "tard aux changements (levée, destruction).")
 
@@ -95,18 +110,66 @@ params_t = tuple(sorted(gee_params.items()))
 # ============================================================
 # CHARGEMENT DU FICHIER
 # ============================================================
-uploaded = st.file_uploader("📁 Charger un SHP (ZIP) ou un GeoJSON",
-                            type=["zip", "geojson"])
-if uploaded is None:
-    st.stop()
+SRC_NEW = "Nouvelle analyse : charger des parcelles"
+SRC_OPEN = "Ouvrir une analyse enregistrée"
+src_mode = st.radio("Source", [SRC_NEW, SRC_OPEN], horizontal=True, key="src_mode",
+                    label_visibility="collapsed")
 
-file_hash = hashlib.md5(uploaded.getvalue()).hexdigest()
-if st.session_state.get("loaded_file") != file_hash:
+
+def _clear_results():
     for key in [k for k in st.session_state if k.startswith(("os_", "mt_"))]:
         del st.session_state[key]
+
+
+if src_mode == SRC_NEW:
+    uploaded = st.file_uploader("📁 Charger un SHP (ZIP) ou un GeoJSON", type=["zip", "geojson"])
+    if uploaded is None:
+        st.stop()
+    vec_bytes, vec_name, source_name = uploaded.getvalue(), uploaded.name, uploaded.name
+    file_hash = hashlib.md5(vec_bytes).hexdigest()
+else:
+    sess_file = st.file_uploader("📂 Analyse enregistrée (.zip créé par le bouton « Enregistrer "
+                                 "l'analyse » de l'onglet temporel)", type=["zip"], key="session_file")
+    if sess_file is None:
+        st.stop()
+    try:
+        session, vec_bytes = read_session_zip(sess_file.getvalue())
+    except ValueError as e:
+        st.error(f"Impossible d'ouvrir ce fichier : {e}")
+        st.stop()
+    vec_name, source_name, file_hash = "parcelles.geojson", session["source_file"], session["file_hash"]
+    sess_id = hashlib.md5(sess_file.getvalue()).hexdigest()
+    if st.session_state.get("opened_session") != sess_id:
+        # Restauration des réglages et des résultats, appliquée en tête du prochain passage
+        _clear_results()
+        st.session_state["loaded_file"] = file_hash
+        st.session_state["opened_session"] = sess_id
+        cfg = session["settings"]
+        p0, p1 = session["period"]
+        st.session_state["pending_restore"] = {
+            "set_thr": tuple(cfg["thresholds"]), "set_buffer": cfg["buffer_m"],
+            "set_cs": cfg["cs_threshold"], "set_cloudbuf": cfg["cloud_buffer_m"],
+            "set_iqr": cfg["iqr_k"], "set_minclear": cfg["min_clear"],
+            "set_minpix": cfg["min_pixels"], "set_minw": cfg["min_weight"],
+            "set_smooth": cfg["smooth_days"],
+            "mt_start_y": p0.year, "mt_start_m": p0.month, "mt_end_y": p1.year, "mt_end_m": p1.month,
+            "mt_raw": session["raws"], "mt_period": (p0, p1), "mt_geoinfo": session["geoinfo"],
+            "mt_ctx": {"geoms_key": session["geoms_key"],
+                       "params_t": tuple(sorted(session["params"].items()))},
+            "mt_errors": session.get("errors", []),
+        }
+        st.rerun()
+    _saved = datetime.datetime.fromisoformat(session["saved_at"])
+    st.info(f"Analyse enregistrée le {_saved:%d/%m/%Y à %H:%M} "
+            f"(version {session.get('app_version', '?')}) — période du "
+            f"{session['period'][0]:%d/%m/%Y} au {session['period'][1]:%d/%m/%Y} — "
+            f"fichier d'origine : {source_name}. Résultats dans l'onglet « Analyse temporelle ».")
+
+if st.session_state.get("loaded_file") != file_hash:
+    _clear_results()
     st.session_state["loaded_file"] = file_hash
 
-features = load_vector(uploaded)
+features = _load_vector_from_bytes(vec_bytes, vec_name)
 if not features:
     st.error("Aucune parcelle trouvée dans le fichier.")
     st.stop()
@@ -117,10 +180,10 @@ if not looks_like_wgs84(features):
 
 fields = list(features[0]["properties"].keys())
 if fields:
-    id_field = st.selectbox(
-        "Champ identifiant des parcelles", fields,
-        index=fields.index("NUM_ILOT") if "NUM_ILOT" in fields else 0,
-    )
+    _default_id = ("ID" if src_mode == SRC_OPEN and "ID" in fields
+                   else "NUM_ILOT" if "NUM_ILOT" in fields else fields[0])
+    id_field = st.selectbox("Champ identifiant des parcelles", fields,
+                            index=fields.index(_default_id), disabled=src_mode == SRC_OPEN)
     ids = unique_ids([f["properties"].get(id_field) for f in features])
 else:
     ids = [f"PARCELLE_{i + 1}" for i in range(len(features))]
@@ -510,12 +573,13 @@ with tab2:
 
     def month_picker(label, key, default):
         c1, c2 = st.columns(2)
+        st.session_state.setdefault(f"{key}_y", default.year)
+        st.session_state.setdefault(f"{key}_m", default.month)
         with c1:
-            y = st.selectbox(f"{label} — année", list(range(today.year, 2016, -1)),
-                             index=today.year - default.year, key=f"{key}_y")
+            y = st.selectbox(f"{label} — année", list(range(today.year, 2016, -1)), key=f"{key}_y")
         with c2:
-            m = st.selectbox(f"{label} — mois", range(1, 13), index=default.month - 1,
-                             key=f"{key}_m", format_func=lambda v: months[v - 1])
+            m = st.selectbox(f"{label} — mois", list(range(1, 13)), key=f"{key}_m",
+                             format_func=lambda v: months[v - 1])
         return y, m
 
     dflt_start = (today.replace(day=1) - datetime.timedelta(days=62)).replace(day=1)
@@ -745,3 +809,33 @@ with tab2:
             key="mt_dl")
         if len(synthese) > MAX_CHARTS:
             st.caption(f"Graphiques Excel limités aux {MAX_CHARTS} premières parcelles.")
+
+        # ── Enregistrement de l'analyse (réouverture sans recalcul) ──
+        ctx = st.session_state.mt_ctx
+        calc_params = dict(ctx["params_t"])
+        session_zip = build_session_zip(
+            meta={
+                "app_version": APP_VERSION, "source_file": source_name, "file_hash": file_hash,
+                "id_field": id_field if fields else None,
+                "geoms_key": ctx["geoms_key"], "params": calc_params,
+                "settings": {
+                    "thresholds": [low, high],
+                    "buffer_m": int(ctx["geoms_key"].rsplit("|", 1)[1]),
+                    "cs_threshold": calc_params["cs_threshold"],
+                    "cloud_buffer_m": calc_params["cloud_buffer_m"],
+                    "iqr_k": calc_params["iqr_k"],
+                    "min_clear": int(min_clear), "min_pixels": int(min_pixels),
+                    "min_weight": float(min_weight), "smooth_days": int(smooth_days),
+                },
+                "period": [p_start, p_end],
+                "errors": st.session_state.get("mt_errors", []),
+            },
+            features=features, ids=ids, geoinfo=st.session_state.mt_geoinfo,
+            raws=st.session_state.mt_raw)
+        st.download_button(
+            "💾 Enregistrer l'analyse (.zip, à rouvrir plus tard sans recalcul)",
+            data=session_zip, file_name=f"analyse_ndvi_{p_start}_{p_end}.zip",
+            mime="application/zip", key="mt_save",
+            help="Contient les réglages, les résultats de chaque date et les contours des "
+                 "parcelles. Pour la rouvrir : « Ouvrir une analyse enregistrée » en haut de page. "
+                 "Pour la supprimer : supprime simplement le fichier.")

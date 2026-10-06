@@ -39,6 +39,14 @@ Application Streamlit + Google Earth Engine pour suivre la couverture des sols
    (> 0,20 en 15 jours : destruction, récolte ou gel).
 4. Confiance selon le nombre de mesures retenues et le plus long trou sans mesure.
 
+## Enregistrer / rouvrir une analyse (utils/session_io.py)
+
+Bouton « Enregistrer l'analyse » de l'onglet temporel : fichier .zip contenant
+`session.json` (réglages, période, résultats bruts de chaque date) et
+`parcelles.geojson` (contours + identifiant, réutilisable comme fichier de parcelles).
+« Ouvrir une analyse enregistrée » en haut de page restaure réglages et résultats
+sans requête Earth Engine. Supprimer une analyse = supprimer le fichier.
+
 ## Déploiement
 
 Secrets Streamlit requis : `GEE_SERVICE_ACCOUNT`, `GEE_PRIVATE_KEY`.
