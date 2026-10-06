@@ -10,6 +10,7 @@ from utils.gee_ndvi import (DEFAULT_PARAMS, compute_day_stats, init_gee, list_da
                              parcel_thumbnail)
 from utils.geometry import looks_like_wgs84, outline_geojson, prepare_all, region_geojson
 from utils.charts import parcel_chart
+from utils.excel_charts import MAX_CHARTS, add_parcel_charts
 from utils.ndvi_processing import (
     DEFAULT_THRESHOLDS,
     STATUS_OK,
@@ -24,7 +25,7 @@ from utils.vector_io import load_vector
 
 # Version affichée dans la barre latérale : à changer à chaque modification,
 # pour savoir quel code tourne réellement sur Streamlit Cloud.
-APP_VERSION = "v2.2 — 06/10/2026"
+APP_VERSION = "v2.3 — 06/10/2026"
 
 st.set_page_config(page_title="NDVI parcellaire", page_icon="🌱", layout="wide")
 st.title("🌱 NDVI – Analyse parcellaire Sentinel-2")
@@ -293,8 +294,9 @@ def column_config(df):
             for c, h in COLUMN_HELP.items() if c in df.columns}
 
 
-def to_excel(sheets):
-    """sheets : dict nom d'onglet -> DataFrame. Ajoute un onglet Lexique."""
+def to_excel(sheets, extra=None):
+    """sheets : dict nom d'onglet -> DataFrame. Ajoute un onglet Lexique.
+    extra : fonction optionnelle appelée sur le classeur (ex. ajout de graphiques)."""
     import io
     lexique = pd.DataFrame(
         [{"Colonne": c, "Définition": h} for c, h in COLUMN_HELP.items()
@@ -308,6 +310,10 @@ def to_excel(sheets):
                 width = max([len(str(col))] + [len(str(v)) for v in df[col].head(200)])
                 ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = min(width + 2, 90)
             ws.freeze_panes = "B2"
+        if extra is not None:
+            extra(xw.book)
+            if "Graphiques" in xw.book.sheetnames:
+                xw.book.move_sheet("Graphiques", offset=1 - xw.book.sheetnames.index("Graphiques"))
     return buf.getvalue()
 
 
@@ -697,8 +703,15 @@ with tab2:
         courbes_view = courbes.assign(Date=courbes["Date"].dt.date)[
             ["ID", "Date", "NDVI_lisse", "Phase", "Incertain"]]
         tech = pick(df_long, TECH_COLS)
+        xlsx = to_excel(
+            {"Synthèse": synth_view, "NDVI par date": pivot, "Détail": detail_view,
+             "Courbes lissées": courbes_view, "Technique": tech},
+            extra=lambda book: add_parcel_charts(book, synthese, detail, courbes,
+                                                 p_start, p_end, low, high))
         st.download_button(
-            "⬇️ Exporter (Excel : synthèse, NDVI par date, détail, courbes lissées, technique)",
-            data=to_excel({"Synthèse": synth_view, "NDVI par date": pivot, "Détail": detail_view,
-                           "Courbes lissées": courbes_view, "Technique": tech}),
-            file_name=f"ndvi_temporel_{p_start}_{p_end}.xlsx", mime=XLSX_MIME, key="mt_dl")
+            "⬇️ Exporter (Excel : synthèse, graphiques par parcelle, NDVI par date, détail, "
+            "courbes lissées, technique)",
+            data=xlsx, file_name=f"ndvi_temporel_{p_start}_{p_end}.xlsx", mime=XLSX_MIME,
+            key="mt_dl")
+        if len(synthese) > MAX_CHARTS:
+            st.caption(f"Graphiques Excel limités aux {MAX_CHARTS} premières parcelles.")
