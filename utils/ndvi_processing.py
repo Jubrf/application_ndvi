@@ -1,6 +1,7 @@
 """
 Post-traitement Python (sans GEE) : mise en forme des statistiques,
-statut qualité, interprétation agronomique, synthèse temporelle.
+statut qualité, poids de fiabilité, phase NDVI. L'analyse temporelle est dans
+utils/timeseries.py.
 """
 import pandas as pd
 
@@ -13,44 +14,18 @@ STATUS_FEW = "Trop peu de pixels"
 STATUS_NOGEOM = "Géométrie inexploitable"
 STATUS_NODATA = "Hors image"
 
-# Indicateur utilisé pour l'interprétation
-INDICATORS = {
-    "Médiane": "NDVI_median",
-    "Moyenne pondérée qualité": "NDVI_pondere",
-    "Moyenne": "NDVI_moyen",
-}
+# ------------------------------------------------------------
+# Phases (seuils réglables dans l'interface, 0,25 / 0,50 par défaut)
+# ------------------------------------------------------------
+from utils.timeseries import PHASE_BIEN, PHASE_NU, PHASE_PEU, phase_of  # noqa: E402
 
-# ------------------------------------------------------------
-# Classification NDVI
-#   < 0.20      → Sol nu ou couvert non levé
-#   0.20–0.25   → Sol nu ou couvert levant  (zone limite)
-#   0.25–0.50   → Couvert en développement
-#   ≥ 0.50      → Couvert établi
-# ------------------------------------------------------------
-COLOR_MAP = {
-    "Sol nu ou couvert non levé": "#d73027",
-    "Sol nu ou couvert levant": "#fdae61",
-    "Couvert en développement": "#66bd63",
-    "Couvert établi": "#1a9850",
-}
+DEFAULT_THRESHOLDS = (0.25, 0.50)
+COLOR_MAP = {PHASE_NU: "#d73027", PHASE_PEU: "#a6d96a", PHASE_BIEN: "#1a9850"}
 COLOR_INVALID = "#9e9e9e"
 
 
-def classify_state(nd):
-    """Retourne (interprétation, couvert: bool|None)."""
-    if nd is None or pd.isna(nd):
-        return None, None
-    if nd < 0.20:
-        return "Sol nu ou couvert non levé", False
-    if nd < 0.25:
-        return "Sol nu ou couvert levant", None
-    if nd < 0.50:
-        return "Couvert en développement", True
-    return "Couvert établi", True
-
-
-def colorize(interpretation):
-    return COLOR_MAP.get(interpretation, COLOR_INVALID)
+def colorize(phase):
+    return COLOR_MAP.get(phase, COLOR_INVALID)
 
 
 def _r(v, n=3):
@@ -125,8 +100,8 @@ def quality_status(parsed, min_pixels, min_clear_pct):
     return STATUS_OK
 
 
-def build_rows(ids, geoinfo, day_result, date_str, indicator_col,
-               min_pixels, min_clear_pct):
+def build_rows(ids, geoinfo, day_result, date_str, min_pixels, min_clear_pct,
+               low=DEFAULT_THRESHOLDS[0], high=DEFAULT_THRESHOLDS[1]):
     """
     ids        : identifiants des parcelles (ordre des features)
     geoinfo    : sortie de geometry.prepare_all
@@ -137,65 +112,22 @@ def build_rows(ids, geoinfo, day_result, date_str, indicator_col,
     for i, (pid, gi) in enumerate(zip(ids, geoinfo)):
         parsed = parse_stats(day_result["stats"].get(i)) if gi["geojson"] else None
         status = quality_status(parsed, min_pixels, min_clear_pct)
-        value = parsed[indicator_col] if (parsed and status == STATUS_OK) else None
-        interp, couvert = classify_state(value)
+        raw_value = parsed["NDVI_median"] if parsed else None
+        value = raw_value if status == STATUS_OK else None
+        phase = phase_of(value, low, high)
 
         weight = reliability_weight(parsed)
-        row = {"ID": pid, "Date": date_str, "NDVI": value,
+        row = {"ID": pid, "Date": date_str, "NDVI": value, "NDVI_brut": raw_value,
                "Poids": weight, "Fiabilite": reliability_level(weight, status),
                "Statut": status,
-               "Interpretation": interp if status == STATUS_OK else status,
-               "Couvert": "Oui" if couvert is True else ("Non" if couvert is False else "—")}
+               "Phase": phase if status == STATUS_OK else status,
+               "Couvert": "—" if phase is None else ("Non" if phase == PHASE_NU else "Oui")}
         if parsed:
             row.update(parsed)
         row.update({"Surface_ha": gi["area_ha"], "Buffer_m": gi["buffer_m"],
                     "Satellite": sats})
         rows.append(row)
     return rows
-
-
-# ------------------------------------------------------------
-# Synthèse temporelle (provisoire — refonte prévue à l'étape 2)
-# Δ entre la première et la dernière mesure valide de chaque parcelle.
-# ------------------------------------------------------------
-def compute_tendency(values):
-    """values : NDVI valides triés par date. Retourne (libellé, delta)."""
-    if len(values) < 2:
-        return "Indéterminé", None
-    delta = round(values[-1] - values[0], 3)
-    if delta > 0.10:
-        return "Hausse", delta
-    if delta < -0.05:
-        return "Baisse", delta
-    return "Stable", delta
-
-
-def temporal_summary(df_long):
-    """
-    df_long : une ligne par parcelle × date (sortie de build_rows).
-    Ajoute Delta_NDVI (vs mesure valide précédente) et retourne
-    (df_long, pivot NDVI parcelle × date avec tendance).
-    """
-    df = df_long.copy()
-    df["_d"] = pd.to_datetime(df["Date"])
-    df = df.sort_values(["ID", "_d"]).reset_index(drop=True)
-
-    valid = df[df["Statut"] == STATUS_OK]
-    df["Delta_NDVI"] = valid.groupby("ID")["NDVI"].diff().round(3)
-
-    pivot = (df.pivot_table(index="ID", columns="Date", values="NDVI",
-                            aggfunc="first", dropna=False)
-             .reindex(df["ID"].drop_duplicates()))
-    tend = {}
-    for pid, sub in valid.groupby("ID"):
-        tend[pid] = compute_tendency(sub["NDVI"].tolist())
-    pivot["Mesures_valides"] = [int(valid["ID"].eq(p).sum()) for p in pivot.index]
-    pivot["Tendance"] = [tend.get(p, ("Indéterminé", None))[0] for p in pivot.index]
-    pivot["Delta_total"] = [tend.get(p, ("Indéterminé", None))[1] for p in pivot.index]
-    pivot = pivot.reset_index()
-    pivot.columns.name = None
-
-    return df.drop(columns="_d"), pivot
 
 
 def unique_ids(raw_ids):

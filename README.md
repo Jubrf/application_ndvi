@@ -21,14 +21,23 @@ Application Streamlit + Google Earth Engine pour suivre la couverture des sols
 7. **Statut qualité** : mesure exploitable si ≥ 50 % de pixels clairs et ≥ 10 pixels
    utilisés (paramétrable).
 
-## Interprétation (indicateur NDVI)
+## Interprétation (seuils réglables dans la barre latérale)
 
-| NDVI | Interprétation |
+| NDVI (médiane) | Phase |
 |---|---|
-| < 0,20 | Sol nu ou couvert non levé |
-| 0,20 – 0,25 | Sol nu ou couvert levant |
-| 0,25 – 0,50 | Couvert en développement |
-| ≥ 0,50 | Couvert établi |
+| < 0,25 | Sol nu |
+| 0,25 – 0,50 | Couvert peu développé |
+| ≥ 0,50 | Couvert bien développé |
+
+## Analyse temporelle (utils/timeseries.py)
+
+1. Mesures retenues : statut OK, poids de fiabilité ≥ 0,5, pas de chute isolée
+   (valeur inférieure de plus de 0,15 à ses voisines avant et après, à ±15 jours).
+2. Courbe lissée journalière : moyenne pondérée à noyau gaussien (6 jours par défaut),
+   poids réduit pour les points sous la courbe ; pas d'extrapolation.
+3. Phases de la courbe, épisodes de moins de 10 jours fusionnés, baisses rapides
+   (> 0,20 en 15 jours : destruction, récolte ou gel).
+4. Confiance selon le nombre de mesures retenues et le plus long trou sans mesure.
 
 ## Déploiement
 
