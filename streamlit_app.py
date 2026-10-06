@@ -332,6 +332,7 @@ def phase_map(items, key, legend_extra=None, height=520):
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         attr="Esri World Imagery", name="Fond satellite").add_to(m)
     folium.TileLayer("OpenStreetMap", name="Fond plan").add_to(m)
+    labels = folium.FeatureGroup(name="Identifiants des parcelles", show=True)
     for feat, it in zip(features, items):
         folium.GeoJson(
             feat["geometry"].__geo_interface__,
@@ -340,6 +341,15 @@ def phase_map(items, key, legend_extra=None, height=520):
                 "fillColor": c, "color": "black", "weight": 1, "fillOpacity": o},
             tooltip=folium.Tooltip(it["tooltip"]),
         ).add_to(m)
+        pt = feat["geometry"].representative_point()
+        folium.Marker(
+            [pt.y, pt.x],
+            icon=folium.DivIcon(icon_size=(0, 0), html=(
+                '<div style="transform:translate(-50%,-50%);white-space:nowrap;'
+                'font:600 11px sans-serif;color:#fff;pointer-events:none;'
+                'text-shadow:0 0 3px #000,0 0 2px #000">' + str(it["id"]) + "</div>")),
+        ).add_to(labels)
+    labels.add_to(m)
     folium.LayerControl(collapsed=True).add_to(m)
 
     entries = [(lab, col) for lab, col in COLOR_MAP.items()] + (legend_extra or [])
@@ -592,19 +602,39 @@ with tab2:
                    f"× {len(synthese)} parcelles — {n_kept} mesures retenues pour les courbes")
 
         st.subheader("Synthèse par parcelle")
-        st.caption("Clique sur une ligne pour afficher le graphique de la parcelle. "
-                   "Survole un en-tête de colonne pour sa définition.")
         synth_view = pick(synthese, SYNTH_COLS)
-        event = st.dataframe(synth_view, hide_index=True, column_config=column_config(synth_view),
-                             on_select="rerun", selection_mode="single-row", key="mt_table")
+        NO_PHASE = "Aucune courbe"
+        phase_vals = synth_view["Phase_fin"].fillna(NO_PHASE)
+        c1, c2 = st.columns(2)
+        with c1:
+            ph_opts = [p for p in list(COLOR_MAP) + [NO_PHASE] if p in set(phase_vals)]
+            f_phase = st.multiselect("Filtrer : phase en fin de période", ph_opts, default=ph_opts,
+                                     key="mt_f_phase")
+        with c2:
+            cf_opts = [c for c in ["Bonne", "Moyenne", "Faible", "Aucune mesure"]
+                       if c in set(synth_view["Confiance"])]
+            f_conf = st.multiselect("Filtrer : confiance", cf_opts, default=cf_opts, key="mt_f_conf")
+        shown = synth_view[phase_vals.isin(f_phase) & synth_view["Confiance"].isin(f_conf)]
+        shown = shown.reset_index(drop=True)
+        st.caption(f"{len(shown)} parcelle(s) affichée(s) sur {len(synth_view)}. Clique sur une "
+                   "ligne pour afficher le graphique de la parcelle. Survole un en-tête de "
+                   "colonne pour sa définition. L'export Excel contient toutes les parcelles.")
+        table_key = "mt_table_" + hashlib.md5(
+            "|".join(sorted(f_phase) + ["#"] + sorted(f_conf)).encode()).hexdigest()[:8]
+        event = st.dataframe(shown, hide_index=True, column_config=column_config(shown),
+                             on_select="rerun", selection_mode="single-row", key=table_key)
+
+        if shown.empty:
+            st.info("Aucune parcelle ne correspond aux filtres : la liste ci-dessous les propose toutes.")
 
         # Parcelle affichée : clic dans le tableau, ou liste déroulante
-        pid_list = list(synthese["ID"])
+        pid_list = list(shown["ID"]) or list(synthese["ID"])
         rows_sel = list(event.selection.rows) if event is not None else []
-        if rows_sel != st.session_state.get("mt_last_rows"):
-            st.session_state.mt_last_rows = rows_sel
+        if (rows_sel, table_key) != st.session_state.get("mt_last_rows"):
+            st.session_state.mt_last_rows = (rows_sel, table_key)
             if rows_sel:
-                st.session_state.mt_pid = pid_list[rows_sel[0]]
+                if rows_sel[0] < len(pid_list):
+                    st.session_state.mt_pid = pid_list[rows_sel[0]]
         if st.session_state.get("mt_pid") not in pid_list:
             st.session_state.mt_pid = pid_list[0]
 
