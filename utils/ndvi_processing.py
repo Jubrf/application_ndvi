@@ -23,6 +23,10 @@ DEFAULT_THRESHOLDS = (0.25, 0.50)
 COLOR_MAP = {PHASE_NU: "#d73027", PHASE_PEU: "#a6d96a", PHASE_BIEN: "#1a9850"}
 COLOR_INVALID = "#9e9e9e"
 
+# Réflectance B11 sous laquelle un sol peu couvert est signalé « humide probable »
+# (valeur indicative, à confirmer sur le terrain) : l'humidité réduit le contraste NDTI.
+SWIR1_WET = 0.15
+
 
 def colorize(phase):
     return COLOR_MAP.get(phase, COLOR_INVALID)
@@ -48,6 +52,8 @@ def parse_stats(raw):
         "NDVI_moyen": _r(raw.get("NDVI_mean")),
         "NDVI_ecart_type": _r(raw.get("NDVI_stdDev")),
         "EVI2_median": _r(raw.get("EVI2_median")),
+        "NDTI_median": _r(raw.get("NDTI_median")),
+        "SWIR1_median": _r(raw.get("SWIR1_median"), 4),
         "Pixels_total": int(n_total),
         "Pixels_clairs": int(n_clear),
         "Pixels_utilises": int(n_used),
@@ -115,13 +121,20 @@ def build_rows(ids, geoinfo, day_result, date_str, min_pixels, min_clear_pct,
         raw_value = parsed["NDVI_median"] if parsed else None
         value = raw_value if status == STATUS_OK else None
         phase = phase_of(value, low, high)
+        ndti = parsed.get("NDTI_median") if (parsed and status == STATUS_OK) else None
+        swir1 = parsed.get("SWIR1_median") if parsed else None
 
         weight = reliability_weight(parsed)
         row = {"ID": pid, "Date": date_str, "NDVI": value, "NDVI_brut": raw_value,
                "Poids": weight, "Fiabilite": reliability_level(weight, status),
                "Statut": status,
                "Phase": phase if status == STATUS_OK else status,
-               "Couvert": "—" if phase is None else ("Non" if phase == PHASE_NU else "Oui")}
+               "Couvert": "—" if phase is None else ("Non" if phase == PHASE_NU else "Oui"),
+               "NDTI": ndti,
+               # Indicatif, à confirmer : infrarouge moyen sombre sur parcelle peu verte
+               "Sol_humide": ("—" if ndti is None or value is None or value >= low
+                              else ("Probable" if swir1 is not None and swir1 < SWIR1_WET
+                                    else "Non"))}
         if parsed:
             row.update(parsed)
         row.update({"Surface_ha": gi["area_ha"], "Buffer_m": gi["buffer_m"],

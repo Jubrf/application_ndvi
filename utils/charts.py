@@ -111,4 +111,62 @@ def parcel_chart(detail, curve, period_start, period_end, low, high,
                      alt.Tooltip("Fiabilite:N", title="Fiabilité"),
                      alt.Tooltip("Poids:Q", title="Poids", format=".2f")]))
 
-    return alt.layer(*layers).properties(height=height).resolve_scale(color="independent")
+    return (alt.layer(*layers).properties(height=height).resolve_scale(color="independent")
+            .configure_axisY(minExtent=AXIS_Y_WIDTH))
+
+
+NDTI_COLOR = "#4a3aa7"      # panneau NDTI : teinte distincte du NDVI
+WET_COLOR = "#eb6834"       # sol humide probable
+NDTI_REF = 0.10             # repère indicatif, à calibrer
+AXIS_Y_WIDTH = 44           # largeur fixe de l'axe Y : les deux panneaux restent alignés
+
+
+def ndti_chart(detail, period_start, period_end, low, height=170):
+    """
+    Panneau NDTI (expérimental), même axe des dates que le graphique NDVI.
+    Points pleins : parcelle peu verte (NDVI < seuil bas), seuls interprétables.
+    Retourne None si aucune valeur NDTI (ex. analyse enregistrée avant la v2.5).
+    """
+    if "NDTI" not in detail or detail["NDTI"].dropna().empty:
+        return None
+    p0, p1 = pd.Timestamp(period_start), pd.Timestamp(period_end)
+    d = detail.dropna(subset=["NDTI"]).copy()
+    d["Lisible"] = (d["NDVI"] < low).map({True: "Oui", False: "Non (parcelle verte)"})
+    humid = d["Sol_humide"] if "Sol_humide" in d else pd.Series("—", index=d.index)
+    d["Humide"] = humid.fillna("—")
+
+    v = d["NDTI"]
+    y_lo = min(-0.05, (v.min() // 0.05) * 0.05)
+    y_hi = max(0.30, -((-v.max()) // 0.05) * 0.05)
+    y_scale = alt.Scale(domain=[y_lo, y_hi], nice=False)
+    x_enc = alt.X("Date:T", scale=alt.Scale(domain=[p0, p1]), axis=_x_axis(p0, p1))
+    tooltip = [alt.Tooltip("Date:T", title="Date", format="%d/%m/%Y"),
+               alt.Tooltip("NDTI:Q", title="NDTI", format=".3f"),
+               alt.Tooltip("NDVI:Q", title="NDVI", format=".3f"),
+               alt.Tooltip("Lisible:N", title="Interprétable"),
+               alt.Tooltip("Humide:N", title="Sol humide")]
+
+    ref = pd.DataFrame({"y": [NDTI_REF], "x0": [p0], "label": ["0,10 (repère indicatif)"]})
+    layers = [
+        alt.Chart(ref).mark_rule(strokeDash=[4, 4], strokeWidth=1, color=MUTED).encode(
+            y=alt.Y("y:Q", scale=y_scale, title="NDTI")),
+        alt.Chart(ref).mark_text(align="left", baseline="bottom", dx=4, dy=-3, fontSize=11,
+                                 color=MUTED).encode(x="x0:T", y=alt.Y("y:Q", scale=y_scale),
+                                                     text="label:N"),
+    ]
+    green = d[d["Lisible"] != "Oui"]
+    bare = d[d["Lisible"] == "Oui"]
+    wet = bare[bare["Humide"] == "Probable"]
+    if not green.empty:
+        layers.append(alt.Chart(green).mark_point(
+            shape="circle", filled=False, size=50, strokeWidth=1.2, color=MUTED).encode(
+            x=x_enc, y=alt.Y("NDTI:Q", scale=y_scale), tooltip=tooltip))
+    if not wet.empty:
+        layers.append(alt.Chart(wet).mark_point(
+            shape="circle", filled=False, size=170, strokeWidth=2, color=WET_COLOR).encode(
+            x=x_enc, y=alt.Y("NDTI:Q", scale=y_scale), tooltip=tooltip))
+    if not bare.empty:
+        layers.append(alt.Chart(bare).mark_circle(
+            size=64, color=NDTI_COLOR, stroke="white", strokeWidth=1.5, opacity=1).encode(
+            x=x_enc, y=alt.Y("NDTI:Q", scale=y_scale), tooltip=tooltip))
+    return alt.layer(*layers).properties(height=height).configure_axisY(minExtent=AXIS_Y_WIDTH)

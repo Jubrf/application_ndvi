@@ -39,6 +39,14 @@ Application Streamlit + Google Earth Engine pour suivre la couverture des sols
    (> 0,20 en 15 jours : destruction, récolte ou gel).
 4. Confiance selon le nombre de mesures retenues et le plus long trou sans mesure.
 
+## NDTI — résidus de culture (expérimental, v2.5)
+
+NDTI = (B11 − B12) / (B11 + B12), médiane par parcelle, calculé dans la même requête
+que le NDVI. Interprétable seulement si la parcelle est peu verte (NDVI < seuil bas).
+Indicateur « Sol_humide » (réflectance B11 < 0,15 sur parcelle peu verte) : l'humidité
+réduit fortement le contraste NDTI. Aucun seuil d'interprétation tant que le calibrage
+terrain (sol nu / cannes de maïs / chaumes) n'est pas fait.
+
 ## Enregistrer / rouvrir une analyse (utils/session_io.py)
 
 Bouton « Enregistrer l'analyse » de l'onglet temporel : fichier .zip contenant

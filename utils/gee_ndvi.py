@@ -78,7 +78,7 @@ def init_gee(service_account, private_key):
 def _make_prepare(cs_threshold, cloud_buffer_m):
     """
     Retourne une fonction img -> image avec les bandes :
-      NDVI, EVI2, W (score de clarté) : masquées hors pixels clairs
+      NDVI, EVI2, NDTI, SWIR1, W (score de clarté) : masquées hors pixels clairs
       CLEAR : 1 = clair, 0 = rejeté (masquée hors emprise de l'image)
     """
     n_excl = len(SCL_EXCLUDE)
@@ -104,7 +104,11 @@ def _make_prepare(cs_threshold, cloud_buffer_m):
                 .divide(nir.add(red.multiply(2.4)).add(1))
                 .rename("EVI2"))
 
-        out = (ndvi.addBands(evi2).addBands(cs.rename("W"))
+        # NDTI (résidus de culture) : bandes infrarouge moyen B11 / B12 (20 m, rééchantillonnées)
+        ndti = img.normalizedDifference(["B11", "B12"]).rename("NDTI")
+        swir1 = img.select("B11").divide(10000).rename("SWIR1")   # réflectance B11 (humidité)
+
+        out = (ndvi.addBands(evi2).addBands(ndti).addBands(swir1).addBands(cs.rename("W"))
                .updateMask(clear)
                .addBands(clear.rename("CLEAR").updateMask(footprint)))
         return ee.Image(out.copyProperties(img, ["system:time_start", "system:index"]))
@@ -263,7 +267,7 @@ def _zonal_stats(day_img, proj, fc, params):
     lo = fc1.reduceToImage(["lo"], ee.Reducer.first()).rename("lo").unmask(-10)
     hi = fc1.reduceToImage(["hi"], ee.Reducer.first()).rename("hi").unmask(10)
     keep = ndvi.gte(lo).And(ndvi.lte(hi))
-    filt = day_img.select(["NDVI", "EVI2", "W"]).updateMask(keep)
+    filt = day_img.select(["NDVI", "EVI2", "NDTI", "SWIR1", "W"]).updateMask(keep)
 
     # 3. Statistiques finales
     final_red = (ee.Reducer.median(maxRaw=_MAX_RAW)
@@ -271,7 +275,8 @@ def _zonal_stats(day_img, proj, fc, params):
                  .combine(ee.Reducer.stdDev(), sharedInputs=True)
                  .combine(ee.Reducer.count(), sharedInputs=True)
                  .unweighted())
-    fc2 = filt.select(["NDVI", "EVI2"]).reduceRegions(collection=fc1, reducer=final_red, **rr)
+    fc2 = filt.select(["NDVI", "EVI2", "NDTI", "SWIR1"]).reduceRegions(
+        collection=fc1, reducer=final_red, **rr)
     fc3 = (filt.select("NDVI").multiply(filt.select("W")).rename("WNDVI")
            .addBands(filt.select("W"))
            .reduceRegions(collection=fc2, reducer=ee.Reducer.sum().unweighted(), **rr))
@@ -293,7 +298,7 @@ def compute_day_stats(date_str, geoms_key, params_t, _geojsons, _region_geojson)
     s2, prepared = _collections(region, d0, d0.advance(1, "day"), params)
 
     proj = s2.first().select("B4").projection()  # grille native S2 (UTM, 10 m)
-    day_img = prepared.select(["NDVI", "EVI2", "W"]).qualityMosaic("W")
+    day_img = prepared.select(["NDVI", "EVI2", "NDTI", "SWIR1", "W"]).qualityMosaic("W")
 
     fc = ee.FeatureCollection([
         ee.Feature(ee.Geometry(gj), {"idx": i})

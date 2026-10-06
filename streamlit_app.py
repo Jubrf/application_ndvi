@@ -9,7 +9,7 @@ from streamlit_folium import st_folium
 from utils.gee_ndvi import (DEFAULT_PARAMS, compute_day_stats, init_gee, list_dates, log,
                              parcel_thumbnail)
 from utils.geometry import looks_like_wgs84, outline_geojson, prepare_all, region_geojson
-from utils.charts import parcel_chart
+from utils.charts import ndti_chart, parcel_chart
 from utils.excel_charts import MAX_CHARTS, add_parcel_charts
 from utils.ndvi_processing import (
     DEFAULT_THRESHOLDS,
@@ -26,7 +26,7 @@ from utils.vector_io import _load_vector_from_bytes
 
 # Version affichée dans la barre latérale : à changer à chaque modification,
 # pour savoir quel code tourne réellement sur Streamlit Cloud.
-APP_VERSION = "v2.4 — 06/10/2026"
+APP_VERSION = "v2.5 — 06/10/2026"
 
 st.set_page_config(page_title="NDVI parcellaire", page_icon="🌱", layout="wide")
 st.title("🌱 NDVI – Analyse parcellaire Sentinel-2")
@@ -262,17 +262,17 @@ def stale_warning(ctx):
                 "Les seuils d'interprétation, de qualité et de la courbe s'appliquent sans relancer.")
 
 
-OS_COLS = ["ID", "NDVI", "Phase", "Couvert", "Fiabilite", "Poids", "Statut", "Clair_pct",
-           "Pixels_utilises", "Surface_ha", "Date"]
+OS_COLS = ["ID", "NDVI", "Phase", "Couvert", "Fiabilite", "Poids", "Statut", "NDTI",
+           "Sol_humide", "Clair_pct", "Pixels_utilises", "Surface_ha", "Date"]
 TECH_COLS = ["ID", "Date", "Statut", "NDVI_brut", "NDVI_median", "NDVI_pondere", "NDVI_moyen",
-             "NDVI_ecart_type", "EVI2_median", "Poids", "Score_clarte", "Clair_pct",
+             "NDVI_ecart_type", "EVI2_median", "NDTI_median", "SWIR1_median", "Poids", "Score_clarte", "Clair_pct",
              "Pixels_total", "Pixels_clairs", "Pixels_utilises", "Outliers_exclus",
              "Surface_ha", "Buffer_m", "Satellite"]
 SYNTH_COLS = ["ID", "Phase_fin", "NDVI_fin", "Confiance", "Chronologie", "Baisses_rapides",
               "Mesures_retenues", "Mesures_ecartees", "Plus_long_trou_j", "Derniere_mesure",
               "Jours_sans_mesure_fin", "Surface_ha"]
 DETAIL_COLS = ["ID", "Date", "NDVI", "NDVI_lisse", "Phase", "Fiabilite", "Poids", "Retenue",
-               "Motif", "Statut", "Clair_pct"]
+               "Motif", "NDTI", "Sol_humide", "Statut", "Clair_pct"]
 INT_COLS = ["Pixels_utilises", "Outliers_exclus", "Buffer_m", "Pixels_total", "Pixels_clairs",
             "Mesures_retenues", "Mesures_ecartees", "Plus_long_trou_j", "Jours_sans_mesure_fin"]
 
@@ -312,6 +312,15 @@ COLUMN_HELP = {
     "Pixels_utilises": "Pixels de 10 m réellement utilisés : clairs et hors valeurs aberrantes.",
     "Surface_ha": "Surface de la parcelle d'origine (ha).",
     "Date": "Date d'acquisition de l'image.",
+    "NDTI": "Indice de résidus de culture (B11 − B12) / (B11 + B12), médiane de la parcelle. "
+            f"Interprétable seulement si la parcelle est peu verte (NDVI < {_t(low)}) : "
+            "plus élevé sur résidus (cannes, pailles) que sur sol nu. EXPÉRIMENTAL : "
+            "repère indicatif ≈ 0,10, à calibrer ; fortement réduit par l'humidité du sol.",
+    "Sol_humide": "Indicatif, à confirmer : « Probable » si la parcelle est peu verte et "
+                  "l'infrarouge moyen (B11) sombre (réflectance < 0,15). Le NDTI est alors "
+                  "peu fiable (résidus et sol nu se ressemblent).",
+    "NDTI_median": "Médiane du NDTI des pixels conservés.",
+    "SWIR1_median": "Médiane de la réflectance B11 (infrarouge moyen, 1 610 nm).",
     # Synthèse temporelle
     "Phase_fin": "Phase de la courbe lissée à la dernière mesure retenue (état « à l'instant T »).",
     "NDVI_fin": "NDVI lissé à la dernière mesure retenue.",
@@ -549,7 +558,9 @@ with tab1:
                 "id": row["ID"],
                 "color": colorize(row["Phase"]) if ok else COLOR_INVALID,
                 "tooltip": (f"<b>{row['ID']}</b><br>{row['Phase']}<br>"
-                            f"NDVI : {fmt(row['NDVI'])}<br>"
+                            f"NDVI : {fmt(row['NDVI'])}"
+                            + (f" · NDTI : {fmt(row['NDTI'])}" if pd.notna(row.get("NDTI")) else "")
+                            + "<br>"
                             f"Fiabilité : {row.get('Fiabilite', '—')} "
                             f"(poids {fmt(row.get('Poids'), 2)})<br>"
                             f"Pixels utilisés : {row.get('Pixels_utilises', '—')} · "
@@ -723,9 +734,15 @@ with tab2:
         c_pid = courbes[courbes["ID"] == pid]
         st.altair_chart(parcel_chart(d_pid, c_pid, p_start, p_end, low, high, show_excl),
                         width="stretch")
+        nd_chart = ndti_chart(d_pid, p_start, p_end, low)
+        if nd_chart is not None:
+            st.markdown("**NDTI — résidus de culture (expérimental)**")
+            st.altair_chart(nd_chart, width="stretch")
         st.caption("● mesure retenue · ○ mesure écartée (survol : motif) · trait plein : courbe "
                    "lissée · pointillé : interpolation à plus de 15 jours de toute mesure · "
-                   "lignes tiretées : seuils.")
+                   "lignes tiretées : seuils. Panneau NDTI (expérimental) : points pleins quand "
+                   f"la parcelle est peu verte (NDVI < {_t(low)}), seuls interprétables ; "
+                   "cercle orange : sol humide probable (NDTI peu fiable).")
 
         with st.expander(f"🛰️ Image satellite de la parcelle {pid}"):
             d_img = d_pid[~d_pid["Statut"].isin(["Hors image", "Géométrie inexploitable"])]
