@@ -9,8 +9,9 @@ from streamlit_folium import st_folium
 from utils.gee_ndvi import (DEFAULT_PARAMS, compute_day_stats, init_gee, list_dates, log,
                              parcel_thumbnail)
 from utils.geometry import looks_like_wgs84, outline_geojson, prepare_all, region_geojson
-from utils.charts import ndti_chart, parcel_chart
+from utils.charts import dates_timeline, ndti_chart, parcel_chart
 from utils.excel_charts import MAX_CHARTS, add_parcel_charts
+from utils.map_export import build_kml
 from utils.ndvi_processing import (
     DEFAULT_THRESHOLDS,
     STATUS_OK,
@@ -26,7 +27,7 @@ from utils.vector_io import _load_vector_from_bytes
 
 # Version affichée dans la barre latérale : à changer à chaque modification,
 # pour savoir quel code tourne réellement sur Streamlit Cloud.
-APP_VERSION = "v2.6 — 08/10/2026"
+APP_VERSION = "v2.7 — 08/10/2026"
 
 st.set_page_config(page_title="NDVI parcellaire", page_icon="🌱", layout="wide")
 st.title("🌱 NDVI – Analyse parcellaire Sentinel-2")
@@ -392,13 +393,8 @@ def to_excel(sheets, extra=None):
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
-def phase_map(items, key, legend_extra=None, height=520):
-    """
-    Carte des parcelles colorées par phase.
-    items : une entrée par parcelle (dans l'ordre de `features`) :
-            {"id", "color", "tooltip" (HTML), "opacity"}
-    Chaque parcelle est une couche nommée par son identifiant (liste des couches).
-    """
+def _build_map(items, legend_extra=None, title=None):
+    """Carte folium des parcelles colorées par phase (titre optionnel, pour l'export HTML)."""
     m = folium.Map(location=[(miny + maxy) / 2, (minx + maxx) / 2], zoom_start=14, tiles=None)
     folium.TileLayer(
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -430,12 +426,51 @@ def phase_map(items, key, legend_extra=None, height=520):
         f'<span style="width:14px;height:14px;background:{col};opacity:.75;'
         f'border:1px solid #333;display:inline-block"></span>{lab}</div>'
         for lab, col in entries)
-    legend = folium.Element(
-        '<div style="position:absolute;bottom:24px;left:12px;z-index:1000;'
-        'background:rgba(255,255,255,.92);color:#222;padding:8px 10px;border-radius:6px;'
-        f'font:12px/1.3 sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.3)">{rows_html}</div>')
-    m.get_root().html.add_child(legend)
+    box = ('position:absolute;z-index:1000;background:rgba(255,255,255,.92);color:#222;'
+           'padding:8px 10px;border-radius:6px;font:12px/1.3 sans-serif;'
+           'box-shadow:0 1px 4px rgba(0,0,0,.3)')
+    m.get_root().html.add_child(folium.Element(
+        f'<div style="{box};bottom:24px;left:12px">{rows_html}</div>'))
+    if title:
+        m.get_root().header.add_child(folium.Element(f"<title>{title}</title>"))
+        m.get_root().html.add_child(folium.Element(
+            f'<div style="{box};top:12px;left:50%;transform:translateX(-50%);'
+            f'font-size:14px;font-weight:600">{title}</div>'))
+    return m
+
+
+def phase_map(items, key, legend_extra=None, height=520, export=None):
+    """
+    Carte des parcelles colorées par phase, avec téléchargements optionnels.
+    items  : une entrée par parcelle (dans l'ordre de `features`) :
+             {"id", "color", "tooltip" (HTML), "opacity", "props" (attributs export)}
+    export : {"title", "file"} → boutons KML (Google My Maps / Earth) et HTML.
+    Chaque parcelle est une couche nommée par son identifiant (liste des couches).
+    """
+    m = _build_map(items, legend_extra)
     st_folium(m, height=height, use_container_width=True, key=key, returned_objects=[])
+    if not export:
+        return
+    legend_txt = " ; ".join(f"{lab} : {col}" for lab, col in
+                            list(COLOR_MAP.items()) + (legend_extra or []))
+    kml = build_kml(export["title"], [
+        {"geometry": feat["geometry"], "name": it["id"], "color": it["color"],
+         "opacity": it.get("opacity", 0.6), "props": it.get("props", {"ID": it["id"]})}
+        for feat, it in zip(features, items)], legend_text=legend_txt)
+    html = _build_map(items, legend_extra, title=export["title"]).get_root().render()
+    c1, c2, c3 = st.columns([1, 1, 2])
+    with c1:
+        st.download_button("🗺️ Carte KML", data=kml, help="Pour Google My Maps ou Google Earth",
+                           file_name=f"{export['file']}.kml",
+                           mime="application/vnd.google-earth.kml+xml", key=f"{key}_kml")
+    with c2:
+        st.download_button("🌐 Carte HTML", data=html.encode("utf-8"), help="S'ouvre dans un navigateur",
+                           file_name=f"{export['file']}.html", mime="text/html",
+                           key=f"{key}_html")
+    with c3:
+        st.caption("KML : mymaps.google.com → Créer une carte → Importer. Si les couleurs ne "
+                   "sont pas reprises : Style → « Styles par colonne de données » → Phase. "
+                   "HTML : s'ouvre dans un navigateur (connexion internet requise pour le fond).")
 
 
 def satellite_view(pid, date_str, key):
@@ -557,6 +592,11 @@ with tab1:
             items.append({
                 "id": row["ID"],
                 "color": colorize(row["Phase"]) if ok else COLOR_INVALID,
+                "props": {"ID": row["ID"], "Date": pd.Timestamp(date_str).strftime("%d/%m/%Y"),
+                          "Phase": row["Phase"], "NDVI": fmt(row["NDVI"]).replace(".", ","),
+                          "NDTI": fmt(row.get("NDTI")).replace(".", ","),
+                          "Fiabilité": row.get("Fiabilite", "—"),
+                          "Pixels clairs (%)": fmt(row.get("Clair_pct"), 0)},
                 "tooltip": (f"<b>{row['ID']}</b><br>{row['Phase']}<br>"
                             f"NDVI : {fmt(row['NDVI'])}"
                             + (f" · NDTI : {fmt(row['NDTI'])}" if pd.notna(row.get("NDTI")) else "")
@@ -566,7 +606,9 @@ with tab1:
                             f"Pixels utilisés : {row.get('Pixels_utilises', '—')} · "
                             f"clairs : {fmt(row.get('Clair_pct'), 0, ' %')}"),
             })
-        phase_map(items, key="os_map", legend_extra=[("Non exploitable", COLOR_INVALID)])
+        phase_map(items, key="os_map", legend_extra=[("Non exploitable", COLOR_INVALID)],
+                  export={"title": f"NDVI au {pd.Timestamp(date_str):%d/%m/%Y}",
+                          "file": f"ndvi_{date_str}"})
 
         with st.expander("🛰️ Image satellite d'une parcelle à cette date"):
             pid_os = st.selectbox("Parcelle", list(df_os["ID"]), key="os_thumb_pid")
@@ -770,10 +812,57 @@ with tab2:
         if courbes.empty:
             st.info("Aucune courbe disponible : pas de mesure retenue sur la période.")
         else:
-            last_curve = courbes["Date"].max().date()
-            map_date = st.slider("Date affichée", min_value=p_start, max_value=p_end,
-                                 value=min(max(last_curve, p_start), p_end),
-                                 format="DD/MM/YYYY", key="mt_map_date")
+            last_curve = min(max(courbes["Date"].max().date(), p_start), p_end)
+            meas = (detail.assign(ok=detail["Retenue"].eq("Oui"))
+                    .groupby("Date")["ok"].agg(["sum", "count"]).reset_index()
+                    .rename(columns={"sum": "Retenues", "count": "Total"}))
+            meas_dates = sorted(d.date() for d in meas["Date"])
+
+            # Date affichée : clic sur la frise, boutons, ou curseur
+            if not (p_start <= st.session_state.get("mt_map_date", last_curve) <= p_end):
+                st.session_state.mt_map_date = last_curve
+            st.session_state.setdefault("mt_map_date", last_curve)
+            tl_state = st.session_state.get("mt_timeline")
+            picked = None
+            try:
+                pts_sel = (tl_state or {}).get("selection", {}).get("pick") or []
+                if pts_sel and meas_dates:
+                    v = pts_sel[0].get("Date")
+                    t = pd.to_datetime(v, unit="ms") if isinstance(v, (int, float)) else pd.to_datetime(v)
+                    # date mesurée la plus proche (le clic peut être décalé par le fuseau horaire)
+                    picked = min(meas_dates, key=lambda d: abs((pd.Timestamp(d) - t).total_seconds()))
+            except (TypeError, ValueError, AttributeError):
+                picked = None
+            if picked != st.session_state.get("mt_tl_last"):
+                st.session_state.mt_tl_last = picked
+                if picked is not None:
+                    st.session_state.mt_map_date = picked
+
+            def _jump(step):
+                cur = st.session_state.mt_map_date
+                cands = [d for d in meas_dates if (d > cur if step > 0 else d < cur)]
+                if cands:
+                    st.session_state.mt_map_date = cands[0] if step > 0 else cands[-1]
+
+            st.caption("Points : dates des images analysées (plus le point est foncé, plus il y a de "
+                       "parcelles avec une mesure retenue). Clique sur un point pour afficher la carte "
+                       "à cette date ; le trait rouge indique la date affichée.")
+            st.altair_chart(dates_timeline(meas, p_start, p_end, st.session_state.mt_map_date),
+                            width="stretch", on_select="rerun", selection_mode="pick",
+                            key="mt_timeline")
+            b1, b2, _sp = st.columns([1, 1, 4])
+            with b1:
+                st.button("◀ Précédente", key="mt_prev", on_click=_jump, args=(-1,),
+                          help="Date d'image analysée précédente",
+                          disabled=not any(d < st.session_state.mt_map_date for d in meas_dates))
+            with b2:
+                st.button("Suivante ▶", key="mt_next", on_click=_jump, args=(1,),
+                          help="Date d'image analysée suivante",
+                          disabled=not any(d > st.session_state.mt_map_date for d in meas_dates))
+            map_date = st.slider("Date affichée (tout jour de la période)", min_value=p_start,
+                                 max_value=p_end, format="DD/MM/YYYY", key="mt_map_date")
+            if map_date in meas_dates:
+                st.caption(f"📍 {map_date:%d/%m/%Y} : date d'image analysée.")
             day = courbes[courbes["Date"] == pd.Timestamp(map_date)].set_index("ID")
             items, n_unc, n_none = [], 0, 0
             for _, srow in synthese.iterrows():
@@ -784,6 +873,10 @@ with tab2:
                     n_unc += unc
                     items.append({
                         "id": pid_m, "color": colorize(r["Phase"]), "opacity": 0.35 if unc else 0.65,
+                        "props": {"ID": pid_m, "Date": f"{map_date:%d/%m/%Y}", "Phase": r["Phase"],
+                                  "NDVI lissé": fmt(r["NDVI_lisse"]).replace(".", ","),
+                                  "Interpolé": "Oui" if unc else "Non",
+                                  "Confiance": srow["Confiance"]},
                         "tooltip": (f"<b>{pid_m}</b><br>{r['Phase']}<br>"
                                     f"NDVI lissé : {fmt(r['NDVI_lisse'])}"
                                     + ("<br><i>Interpolé : aucune mesure à moins de 15 jours</i>"
@@ -793,6 +886,9 @@ with tab2:
                     n_none += 1
                     items.append({
                         "id": pid_m, "color": COLOR_INVALID, "opacity": 0.5,
+                        "props": {"ID": pid_m, "Date": f"{map_date:%d/%m/%Y}",
+                                  "Phase": "Pas de courbe à cette date", "NDVI lissé": "—",
+                                  "Interpolé": "—", "Confiance": srow["Confiance"]},
                         "tooltip": (f"<b>{pid_m}</b><br>Pas de courbe à cette date<br>"
                                     "(avant la 1re ou après la dernière mesure retenue)"),
                     })
@@ -800,7 +896,9 @@ with tab2:
                 f"Phase de la courbe lissée de chaque parcelle au {map_date:%d/%m/%Y}. "
                 f"Teinte atténuée : valeur interpolée loin de toute mesure ({n_unc} parcelle(s)). "
                 f"Gris : pas de courbe à cette date ({n_none} parcelle(s)).")
-            phase_map(items, key="mt_map", legend_extra=[("Pas de courbe à cette date", COLOR_INVALID)])
+            phase_map(items, key="mt_map", legend_extra=[("Pas de courbe à cette date", COLOR_INVALID)],
+                      export={"title": f"Phases NDVI au {map_date:%d/%m/%Y}",
+                              "file": f"phases_ndvi_{map_date}"})
 
         pivot = (detail[detail["Retenue"] == "Oui"]
                  .assign(Date=lambda x: x["Date"].dt.strftime("%Y-%m-%d"))

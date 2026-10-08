@@ -170,3 +170,38 @@ def ndti_chart(detail, period_start, period_end, low, height=170):
             size=64, color=NDTI_COLOR, stroke="white", strokeWidth=1.5, opacity=1).encode(
             x=x_enc, y=alt.Y("NDTI:Q", scale=y_scale), tooltip=tooltip))
     return alt.layer(*layers).properties(height=height).configure_axisY(minExtent=AXIS_Y_WIDTH)
+
+
+CURRENT_COLOR = "#e34948"   # date affichée sur la carte
+
+
+def dates_timeline(meas, period_start, period_end, current, height=80):
+    """
+    Frise des dates analysées (un point par date d'image), cliquable.
+    meas    : DataFrame (Date, Retenues, Total) — mesures retenues par date
+    current : date affichée sur la carte (trait vertical)
+    Sélection Altair nommée « pick » (st.altair_chart(..., on_select="rerun")).
+    """
+    p0, p1 = pd.Timestamp(period_start), pd.Timestamp(period_end)
+    m = meas.copy()
+    m["Part"] = (m["Retenues"] / m["Total"].where(m["Total"] > 0)).fillna(0)
+    m["Libelle"] = m["Retenues"].astype(int).astype(str) + " / " + m["Total"].astype(int).astype(str)
+    m["y"] = 0
+    x_enc = alt.X("Date:T", scale=alt.Scale(domain=[p0, p1]), axis=_x_axis(p0, p1))
+    y_enc = alt.Y("y:Q", axis=None, scale=alt.Scale(domain=[-1, 1]))
+    pick = alt.selection_point(name="pick", fields=["Date"], on="click", empty=False)
+
+    base_line = alt.Chart(pd.DataFrame({"x0": [p0], "x1": [p1], "y": [0]})).mark_rule(
+        color=MUTED, strokeWidth=1).encode(x="x0:T", x2="x1:T", y=y_enc)
+    cur = alt.Chart(pd.DataFrame({"Date": [pd.Timestamp(current)]})).mark_rule(
+        color=CURRENT_COLOR, strokeWidth=2).encode(x=x_enc)
+    pts = alt.Chart(m).mark_circle(size=110, color=CURVE_COLOR, stroke="white",
+                                   strokeWidth=1.5, cursor="pointer").encode(
+        x=x_enc, y=y_enc,
+        opacity=alt.Opacity("Part:Q", scale=alt.Scale(domain=[0, 1], range=[0.25, 1]),
+                            legend=None),
+        tooltip=[alt.Tooltip("Date:T", title="Date", format="%d/%m/%Y"),
+                 alt.Tooltip("Libelle:N", title="Parcelles retenues")],
+    ).add_params(pick)
+    return (alt.layer(base_line, cur, pts).properties(height=height)
+            .configure_axisY(minExtent=AXIS_Y_WIDTH).configure_view(stroke=None))
