@@ -27,7 +27,7 @@ from utils.vector_io import _load_vector_from_bytes
 
 # Version affichée dans la barre latérale : à changer à chaque modification,
 # pour savoir quel code tourne réellement sur Streamlit Cloud.
-APP_VERSION = "v2.7.1 — 08/10/2026"
+APP_VERSION = "v2.7.2 — 08/10/2026"
 
 st.set_page_config(page_title="NDVI parcellaire", page_icon="🌱", layout="wide")
 st.title("🌱 NDVI – Analyse parcellaire Sentinel-2")
@@ -393,17 +393,25 @@ def to_excel(sheets, extra=None):
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
-def _build_map(items, legend_extra=None, title=None):
-    """Carte folium des parcelles colorées par phase (titre optionnel, pour l'export HTML)."""
+def _build_map(items, legend_extra=None, title=None, for_export=False):
+    """
+    Carte folium des parcelles colorées par phase.
+    Appli : fond plan OpenStreetMap par défaut, satellite Esri au choix.
+    Export HTML (for_export=True, titre) : fonds Esri uniquement, satellite par défaut —
+    les serveurs OpenStreetMap bloquent les fichiers HTML ouverts en local (« Access blocked »).
+    """
     m = folium.Map(location=[(miny + maxy) / 2, (minx + maxx) / 2], zoom_start=14, tiles=None)
-    # Fonds Esri : utilisables aussi depuis un fichier HTML ouvert en local (les serveurs
-    # OpenStreetMap refusent ces requêtes : « Access blocked »). Satellite affiché par défaut.
-    folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri World Street Map", name="Fond plan", show=False).add_to(m)
-    folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri World Imagery", name="Fond satellite", show=True).add_to(m)
+    esri_sat = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+    if for_export:
+        folium.TileLayer(
+            tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+            attr="Esri World Street Map", name="Fond plan", show=False).add_to(m)
+        folium.TileLayer(tiles=esri_sat, attr="Esri World Imagery", name="Fond satellite",
+                         show=True).add_to(m)
+    else:
+        folium.TileLayer(tiles=esri_sat, attr="Esri World Imagery", name="Fond satellite",
+                         show=False).add_to(m)
+        folium.TileLayer("OpenStreetMap", name="Fond plan (OpenStreetMap)", show=True).add_to(m)
     labels = folium.FeatureGroup(name="Identifiants des parcelles", show=True)
     for feat, it in zip(features, items):
         folium.GeoJson(
@@ -461,7 +469,7 @@ def phase_map(items, key, legend_extra=None, height=520, export=None):
         {"geometry": feat["geometry"], "name": it["id"], "color": it["color"],
          "opacity": it.get("opacity", 0.6), "props": it.get("props", {"ID": it["id"]})}
         for feat, it in zip(features, items)], legend_text=legend_txt)
-    html = _build_map(items, legend_extra, title=export["title"]).get_root().render()
+    html = _build_map(items, legend_extra, title=export["title"], for_export=True).get_root().render()
     c1, c2, c3 = st.columns([1, 1, 2])
     with c1:
         st.download_button("🗺️ Carte KML", data=kml, help="Pour Google My Maps ou Google Earth",
