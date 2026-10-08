@@ -27,7 +27,7 @@ from utils.vector_io import _load_vector_from_bytes
 
 # Version affichée dans la barre latérale : à changer à chaque modification,
 # pour savoir quel code tourne réellement sur Streamlit Cloud.
-APP_VERSION = "v2.7 — 08/10/2026"
+APP_VERSION = "v2.7.1 — 08/10/2026"
 
 st.set_page_config(page_title="NDVI parcellaire", page_icon="🌱", layout="wide")
 st.title("🌱 NDVI – Analyse parcellaire Sentinel-2")
@@ -396,10 +396,14 @@ XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 def _build_map(items, legend_extra=None, title=None):
     """Carte folium des parcelles colorées par phase (titre optionnel, pour l'export HTML)."""
     m = folium.Map(location=[(miny + maxy) / 2, (minx + maxx) / 2], zoom_start=14, tiles=None)
+    # Fonds Esri : utilisables aussi depuis un fichier HTML ouvert en local (les serveurs
+    # OpenStreetMap refusent ces requêtes : « Access blocked »). Satellite affiché par défaut.
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri World Street Map", name="Fond plan", show=False).add_to(m)
     folium.TileLayer(
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri World Imagery", name="Fond satellite").add_to(m)
-    folium.TileLayer("OpenStreetMap", name="Fond plan").add_to(m)
+        attr="Esri World Imagery", name="Fond satellite", show=True).add_to(m)
     labels = folium.FeatureGroup(name="Identifiants des parcelles", show=True)
     for feat, it in zip(features, items):
         folium.GeoJson(
@@ -470,7 +474,7 @@ def phase_map(items, key, legend_extra=None, height=520, export=None):
     with c3:
         st.caption("KML : mymaps.google.com → Créer une carte → Importer. Si les couleurs ne "
                    "sont pas reprises : Style → « Styles par colonne de données » → Phase. "
-                   "HTML : s'ouvre dans un navigateur (connexion internet requise pour le fond).")
+                   "HTML : s'ouvre dans un navigateur (connexion internet requise pour le fond Esri).")
 
 
 def satellite_view(pid, date_str, key):
