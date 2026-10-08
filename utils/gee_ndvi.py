@@ -154,19 +154,14 @@ def list_dates(start, end, region_key, params_t, _region_geojson):
     params = dict(params_t)
     region = ee.Geometry(_region_geojson)
     end_excl = (datetime.date.fromisoformat(end) + datetime.timedelta(days=1)).isoformat()
-    _, prepared = _collections(region, start, end_excl, params)
+    s2, prepared = _collections(region, start, end_excl, params)
 
     # 1. Identifiants et dates des images (requête légère)
-    # + nombre total de pixels (20 m) de la zone des parcelles, pour la part couverte
     meta = ee.Dictionary({
         "ids": prepared.aggregate_array("system:index"),
         "times": prepared.aggregate_array("system:time_start"),
-        "total": ee.Image.constant(1).rename("ALL").reduceRegion(
-            reducer=ee.Reducer.count(), geometry=region, scale=20,
-            maxPixels=1e10, tileScale=4).get("ALL"),
     }).getInfo()
     ids, times = meta.get("ids") or [], meta.get("times") or []
-    total_px = meta.get("total") or 0
     if not ids:
         return []
     date_of = {i: datetime.datetime.fromtimestamp(t / 1000, datetime.timezone.utc).date().isoformat()
@@ -176,13 +171,23 @@ def list_dates(start, end, region_key, params_t, _region_geojson):
     # Toutes les images sont empilées en une image multi-bandes (toBands) et
     # réduites en UNE SEULE opération : pas de réduction par image lancée en
     # parallèle (cause de « Too many concurrent aggregations » sur un mois chargé).
-    common = {"geometry": region, "scale": 20, "maxPixels": 1e10, "tileScale": 4}
+    # Tous les comptages sur la MÊME grille (UTM Sentinel-2, 20 m) : sans crs explicite,
+    # l'image constante du total serait comptée en degrés (pixels ~20 × 13 m en Alsace)
+    # et la part couverte sous-estimée d'environ un tiers.
+    proj = ee.Image(s2.first()).select("B4").projection()
+    common = {"geometry": region, "crs": proj, "scale": 20, "maxPixels": 1e10, "tileScale": 4}
     reducer = ee.Reducer.sum().combine(ee.Reducer.count(), sharedInputs=True)
+    total_expr = (ee.Image.constant(1).rename("ALL")
+                  .reduceRegion(reducer=ee.Reducer.count(), **common).get("ALL"))
     per_image = {}
     t0 = time.time()
     log(f"Recherche des dates {start} → {end} ({len(ids)} images, réduction unique)…")
     try:
-        stats = prepared.select("CLEAR").toBands().reduceRegion(reducer=reducer, **common).getInfo()
+        res = ee.Dictionary({
+            "stats": prepared.select("CLEAR").toBands().reduceRegion(reducer=reducer, **common),
+            "total": total_expr,
+        }).getInfo()
+        stats, total_px = res.get("stats") or {}, res.get("total") or 0
         for key, val in stats.items():
             if key.endswith("_CLEAR_sum"):
                 img_id = key[: -len("_CLEAR_sum")]
@@ -191,6 +196,7 @@ def list_dates(start, end, region_key, params_t, _region_geojson):
             per_image[ids[0]] = (_first(stats, "_sum", "sum"), _first(stats, "_count", "count"))
     except ee.EEException as e:
         log(f"Réduction unique refusée ({e}) : repli image par image")
+        total_px = total_expr.getInfo() or 0
         # Repli : une requête simple par image, l'une après l'autre (plus lent, sans parallélisme)
         img_list = prepared.select("CLEAR").toList(len(ids))
         for k, img_id in enumerate(ids):

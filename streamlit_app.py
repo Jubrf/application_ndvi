@@ -26,7 +26,7 @@ from utils.vector_io import _load_vector_from_bytes
 
 # Version affichée dans la barre latérale : à changer à chaque modification,
 # pour savoir quel code tourne réellement sur Streamlit Cloud.
-APP_VERSION = "v2.5 — 06/10/2026"
+APP_VERSION = "v2.6 — 08/10/2026"
 
 st.set_page_config(page_title="NDVI parcellaire", page_icon="🌱", layout="wide")
 st.title("🌱 NDVI – Analyse parcellaire Sentinel-2")
