@@ -17,12 +17,19 @@ Chaîne de traitement d'une date :
        c. médiane, moyenne, moyenne pondérée par le score de clarté,
           écart-type, nombre de pixels.
      Le tout est calculé côté serveur en une seule requête getInfo.
+
+Seul module de l'application qui dépend d'Earth Engine : les fonctions publiques
+(init_gee, list_dates, compute_day_stats, parcel_thumbnail) renvoient des types Python
+simples (dict, list, str) exploités par ndvi_app/core et ndvi_app/ui.
+Les résultats sont mis en cache par Streamlit (clés : dates, géométries, paramètres).
 """
 import datetime
 import time
 
 import ee
 import streamlit as st
+
+from ndvi_app.logs import log
 
 S2_COLLECTION = "COPERNICUS/S2_SR_HARMONIZED"
 CSPLUS_COLLECTION = "GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED"
@@ -52,11 +59,6 @@ _MAX_RAW = 20000  # médiane/percentiles exacts jusqu'à 20 000 pixels (200 ha)
 # Délai maximal d'une requête Earth Engine : au-delà, une erreur est levée
 # au lieu d'un blocage sans fin (le client peut retenter quelques fois).
 REQUEST_TIMEOUT_S = 90
-
-
-def log(msg):
-    """Ligne horodatée dans les logs du serveur (visibles dans « Manage app »)."""
-    print(f"[ndvi {datetime.datetime.now():%H:%M:%S}] {msg}", flush=True)
 
 
 @st.cache_resource

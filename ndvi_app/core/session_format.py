@@ -12,16 +12,11 @@ import json
 import zipfile
 
 from shapely.geometry import mapping
-from shapely.ops import transform
+
+from ndvi_app.core.geometry import strip_z
 
 FORMAT = "ndvi-session"
 FORMAT_VERSION = 1
-
-
-def _strip_z(geom):
-    if not geom.has_z:
-        return geom
-    return transform(lambda x, y, z=None: (x, y), geom)
 
 
 def build_session_zip(meta, features, ids, geoinfo, raws):
@@ -31,7 +26,7 @@ def build_session_zip(meta, features, ids, geoinfo, raws):
     features : parcelles chargées (géométries shapely WGS84)
     ids      : identifiants (même ordre)
     geoinfo  : sortie de geometry.prepare_all au moment du calcul
-    raws     : [(date_str, résultat compute_day_stats)]
+    raws     : [(date_str, résultat earth_engine.sentinel2.compute_day_stats)]
     """
     p0, p1 = meta["period"]
     session = {
@@ -51,7 +46,7 @@ def build_session_zip(meta, features, ids, geoinfo, raws):
         "type": "FeatureCollection",
         "features": [
             {"type": "Feature", "properties": {"ID": pid},
-             "geometry": mapping(_strip_z(f["geometry"]))}
+             "geometry": mapping(strip_z(f["geometry"]))}
             for f, pid in zip(features, ids)
         ],
     }

@@ -10,11 +10,11 @@ Couches, de l'arrière vers l'avant :
 import altair as alt
 import pandas as pd
 
-from utils.timeseries import PHASE_BIEN, PHASE_NU, PHASE_PEU, PHASES
+from ndvi_app.config import COLOR_MAP, PHASES
 
 CURVE_COLOR = "#2a78d6"     # série unique : bleu
 MUTED = "#8a8984"           # seuils, libellés, mesures écartées
-PHASE_TINTS = {PHASE_NU: "#d73027", PHASE_PEU: "#a6d96a", PHASE_BIEN: "#1a9850"}
+PHASE_TINTS = COLOR_MAP     # mêmes couleurs que les cartes
 
 _MONTHS = "['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.']"
 

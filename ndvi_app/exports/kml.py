@@ -12,17 +12,12 @@ Google Earth reprend directement les couleurs des styles.
 from xml.sax.saxutils import escape
 
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
-from shapely.ops import transform
 
-
-def _strip_z(geom):
-    if not geom.has_z:
-        return geom
-    return transform(lambda x, y, z=None: (x, y), geom)
+from ndvi_app.core.geometry import strip_z
 
 
 def _polygons(geom):
-    geom = _strip_z(geom)
+    geom = strip_z(geom)
     if isinstance(geom, Polygon):
         return [geom] if not geom.is_empty else []
     if isinstance(geom, (MultiPolygon, GeometryCollection)):

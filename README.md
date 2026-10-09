@@ -29,7 +29,7 @@ Application Streamlit + Google Earth Engine pour suivre la couverture des sols
 | 0,25 – 0,50 | Couvert peu développé |
 | ≥ 0,50 | Couvert bien développé |
 
-## Analyse temporelle (utils/timeseries.py)
+## Analyse temporelle (ndvi_app/core/timeseries.py)
 
 1. Mesures retenues : statut OK, poids de fiabilité ≥ 0,5, pas de chute isolée
    (valeur inférieure de plus de 0,15 à ses voisines avant et après, à ±15 jours).
@@ -47,7 +47,7 @@ Indicateur « Sol_humide » (réflectance B11 < 0,15 sur parcelle peu verte) : l
 réduit fortement le contraste NDTI. Aucun seuil d'interprétation tant que le calibrage
 terrain (sol nu / cannes de maïs / chaumes) n'est pas fait.
 
-## Enregistrer / rouvrir une analyse (utils/session_io.py)
+## Enregistrer / rouvrir une analyse (ndvi_app/core/session_format.py)
 
 Bouton « Enregistrer l'analyse » de l'onglet temporel : fichier .zip contenant
 `session.json` (réglages, période, résultats bruts de chaque date) et
@@ -55,6 +55,12 @@ Bouton « Enregistrer l'analyse » de l'onglet temporel : fichier .zip contenant
 « Ouvrir une analyse enregistrée » en haut de page restaure réglages et résultats
 sans requête Earth Engine. Supprimer une analyse = supprimer le fichier.
 
+## Organisation du code
+
+Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) : calculs (`ndvi_app/core`), accès
+Earth Engine (`ndvi_app/earth_engine`), exports (`ndvi_app/exports`) et interface (`ndvi_app/ui`).
+
 ## Déploiement
 
 Secrets Streamlit requis : `GEE_SERVICE_ACCOUNT`, `GEE_PRIVATE_KEY`.
+Après une mise à jour du code : « Reboot app » dans Streamlit Cloud.

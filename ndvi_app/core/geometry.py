@@ -20,7 +20,8 @@ MIN_AREA_M2 = 1500
 SIMPLIFY_M = 1.0
 
 
-def _strip_z(geom):
+def strip_z(geom):
+    """Retire la 3e dimension (altitude) éventuelle d'une géométrie shapely."""
     if not geom.has_z:
         return geom
     return transform(lambda x, y, z=None: (x, y), geom)
@@ -47,7 +48,7 @@ def prepare_analysis_geometry(geom_wgs84, buffer_m=10, min_area_m2=MIN_AREA_M2):
       area_ha   : surface d'origine (ha)
       area_analysis_ha : surface après buffer (ha)
     """
-    geom = _strip_z(geom_wgs84)
+    geom = strip_z(geom_wgs84)
     c = geom.centroid
     to_utm, to_wgs = _transformers(c.x, c.y)
 
@@ -87,7 +88,7 @@ def prepare_all(features, buffer_m=10):
 
 def region_geojson(features, tolerance_deg=1e-4):
     """Union simplifiée des parcelles (≈10 m) : zone de calcul du % de ciel clair."""
-    geoms = [_strip_z(f["geometry"]).buffer(0) for f in features]
+    geoms = [strip_z(f["geometry"]).buffer(0) for f in features]
     union = unary_union(geoms).simplify(tolerance_deg, preserve_topology=True)
     return mapping(union)
 
@@ -103,4 +104,4 @@ def looks_like_wgs84(features):
 
 def outline_geojson(geom):
     """Contour d'origine de la parcelle (WGS84, sans Z), pour l'affichage."""
-    return mapping(_strip_z(geom).buffer(0))
+    return mapping(strip_z(geom).buffer(0))

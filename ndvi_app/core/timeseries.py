@@ -18,10 +18,7 @@ Chaîne de traitement d'une parcelle :
 import numpy as np
 import pandas as pd
 
-PHASE_NU = "Sol nu"
-PHASE_PEU = "Couvert peu développé"
-PHASE_BIEN = "Couvert bien développé"
-PHASES = [PHASE_NU, PHASE_PEU, PHASE_BIEN]
+from ndvi_app.config import PHASE_BIEN, PHASE_NU, PHASE_PEU, PHASES, STATUS_OK  # noqa: F401 (réexportés)
 
 DEFAULT_SETTINGS = {
     "min_weight": 0.5,          # poids de fiabilité minimal d'une mesure retenue
@@ -52,7 +49,7 @@ def phase_of(value, low, high):
 # ------------------------------------------------------------
 # 1. Sélection des mesures
 # ------------------------------------------------------------
-def select_measures(sub, settings, status_ok="OK"):
+def select_measures(sub, settings, status_ok=STATUS_OK):
     """
     sub : lignes d'une parcelle (colonnes Date datetime64, NDVI, Poids, Statut), triées par date.
     Retourne (retenue: array bool, motif: list[str|None]).

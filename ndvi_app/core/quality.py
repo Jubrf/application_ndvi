@@ -1,27 +1,11 @@
 """
-Post-traitement Python (sans GEE) : mise en forme des statistiques,
-statut qualité, poids de fiabilité, phase NDVI. L'analyse temporelle est dans
-utils/timeseries.py.
+Mesure d'une parcelle à une date (Python pur, sans Earth Engine ni Streamlit) :
+mise en forme des statistiques brutes, statut qualité, poids de fiabilité, phase NDVI.
+L'analyse temporelle est dans ndvi_app/core/timeseries.py.
 """
-import pandas as pd
-
-# ------------------------------------------------------------
-# Statut qualité d'une mesure parcelle × date
-# ------------------------------------------------------------
-STATUS_OK = "OK"
-STATUS_CLOUD = "Nuageux"
-STATUS_FEW = "Trop peu de pixels"
-STATUS_NOGEOM = "Géométrie inexploitable"
-STATUS_NODATA = "Hors image"
-
-# ------------------------------------------------------------
-# Phases (seuils réglables dans l'interface, 0,25 / 0,50 par défaut)
-# ------------------------------------------------------------
-from utils.timeseries import PHASE_BIEN, PHASE_NU, PHASE_PEU, phase_of  # noqa: E402
-
-DEFAULT_THRESHOLDS = (0.25, 0.50)
-COLOR_MAP = {PHASE_NU: "#d73027", PHASE_PEU: "#a6d96a", PHASE_BIEN: "#1a9850"}
-COLOR_INVALID = "#9e9e9e"
+from ndvi_app.config import (COLOR_INVALID, COLOR_MAP, DEFAULT_THRESHOLDS, PHASE_NU,
+                             STATUS_CLOUD, STATUS_FEW, STATUS_NODATA, STATUS_NOGEOM, STATUS_OK)
+from ndvi_app.core.timeseries import phase_of
 
 # Réflectance B11 sous laquelle un sol peu couvert est signalé « humide probable »
 # (valeur indicative, à confirmer sur le terrain) : l'humidité réduit le contraste NDTI.
@@ -111,7 +95,7 @@ def build_rows(ids, geoinfo, day_result, date_str, min_pixels, min_clear_pct,
     """
     ids        : identifiants des parcelles (ordre des features)
     geoinfo    : sortie de geometry.prepare_all
-    day_result : sortie de gee_ndvi.compute_day_stats
+    day_result : sortie de earth_engine.sentinel2.compute_day_stats
     """
     sats = ", ".join(s.replace("Sentinel-", "S") for s in day_result.get("satellites", []))
     rows = []
