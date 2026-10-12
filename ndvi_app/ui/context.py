@@ -80,10 +80,16 @@ class Context:
         """Ce qui conditionne les calculs GEE : sert à détecter des résultats périmés."""
         return {"geoms_key": self.parcels.geoms_key, "params_t": self.settings.params_t}
 
-    def run_analysis(self, date_str: str) -> dict:
-        """Statistiques Earth Engine de toutes les parcelles à une date."""
-        return gee.compute_day_stats(date_str, self.parcels.geoms_key, self.settings.params_t,
-                                     self.parcels.analysis_geojsons, self.parcels.region)
+    def run_analysis(self, date_str: str, calc: dict | None = None,
+                     geoinfo: list | None = None) -> dict:
+        """Statistiques Earth Engine de toutes les parcelles à une date.
+        calc / geoinfo : contexte de calcul et géométries d'une analyse existante (pour la
+        compléter avec les mêmes paramètres et les mêmes contours) ; par défaut, les actuels."""
+        geoms_key = calc["geoms_key"] if calc else self.parcels.geoms_key
+        params_t = calc["params_t"] if calc else self.settings.params_t
+        geojsons = ([g["geojson"] for g in geoinfo] if geoinfo is not None
+                    else self.parcels.analysis_geojsons)
+        return gee.compute_day_stats(date_str, geoms_key, params_t, geojsons, self.parcels.region)
 
     def list_dates(self, start, end) -> list:
         """Dates d'images Sentinel-2 sur la période, avec le % de ciel clair sur les parcelles."""

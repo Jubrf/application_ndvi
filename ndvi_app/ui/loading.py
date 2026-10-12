@@ -15,8 +15,7 @@ from ndvi_app.core.vector_io import load_vector_from_bytes
 from ndvi_app.ui import state
 from ndvi_app.ui.context import Parcels, Settings
 
-SRC_NEW = "Nouvelle analyse : charger des parcelles"
-SRC_OPEN = "Ouvrir une analyse enregistrée"
+SRC_NEW, SRC_OPEN = state.SRC_NEW, state.SRC_OPEN
 
 # Même fichier → pas de nouvelle lecture (cache sur le contenu)
 load_vector = st.cache_data(show_spinner="Chargement du fichier vecteur…")(load_vector_from_bytes)
@@ -56,6 +55,7 @@ def load_parcels(settings: Settings) -> Parcels:
                         label_visibility="collapsed")
 
     if src_mode == SRC_NEW:
+        state.release_session()
         uploaded = st.file_uploader("📁 Charger un SHP (ZIP) ou un GeoJSON", type=["zip", "geojson"])
         if uploaded is None:
             st.stop()

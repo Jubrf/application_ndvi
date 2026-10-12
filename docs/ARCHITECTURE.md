@@ -91,6 +91,26 @@ relance le script. Aucune requête Earth Engine n'est faite. Le format est versi
 (`FORMAT_VERSION`) : une version plus récente de l'appli doit continuer à lire les anciens
 fichiers.
 
+## Compléter une analyse (v3.1)
+
+`ui/tab_temporal.py` (`_extend_mode`, `_select_and_extend`). Une fois une analyse affichée
+(rouverte depuis un .zip ou faite dans la séance), on peut choisir une période qui contient
+celle déjà analysée. La recherche des dates ne propose alors que les dates pas encore analysées,
+avec le même filtre de ciel clair. Une frise (`ui/charts.coverage_timeline`) montre :
+- les dates déjà analysées ;
+- les nouvelles dates, sélectionnées ou non ;
+- la période déjà analysée ;
+- les trous de plus de 20 jours.
+
+Seules les dates sélectionnées sont envoyées à Earth Engine. Elles sont calculées avec le
+contexte de calcul (`mt_ctx`) et les géométries (`mt_geoinfo`) de l'analyse existante, puis
+fusionnées avec les résultats déjà présents. Une date en erreur qui est recalculée disparaît
+de la liste des erreurs.
+
+Quand une analyse enregistrée est ouverte, le buffer et le masque nuages sont verrouillés sur
+ses valeurs (`state.session_lock`), et la période ne peut qu'être agrandie. Les seuils, la
+qualité minimale et la courbe restent réglables. Le format du fichier .zip est inchangé.
+
 ## Où modifier quoi
 
 | Besoin | Fichier |

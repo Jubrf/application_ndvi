@@ -4,8 +4,9 @@ import streamlit as st
 from ndvi_app.ui.context import Settings
 
 
-def render_sidebar() -> Settings:
-    """Affiche les réglages et renvoie leurs valeurs. state.init_settings() doit avoir été appelé."""
+def render_sidebar(locked=False) -> Settings:
+    """Affiche les réglages et renvoie leurs valeurs. state.init_settings() doit avoir été appelé.
+    locked : analyse enregistrée ouverte → buffer et masque non modifiables."""
     with st.sidebar:
         st.header("Paramètres d'analyse")
         low, high = st.slider(
@@ -19,20 +20,28 @@ def render_sidebar() -> Settings:
             "Buffer intérieur (m)", options=[0, 5, 10, 15, 20], key="set_buffer",
             help="Retire une bande en bordure de parcelle (haies, chemins, voisins). "
                  "Réduit automatiquement pour les petites parcelles.",
+            disabled=locked,
         )
+        if locked:
+            st.caption("🔒 Buffer et masque nuages verrouillés sur ceux de l'analyse enregistrée : "
+                       "les dates ajoutées sont calculées exactement comme les autres. "
+                       "Les seuils et la courbe restent réglables.")
         with st.expander("Masque nuages et qualité"):
             cs_threshold = st.slider(
                 "Seuil Cloud Score+", 0.40, 0.85, step=0.05, key="set_cs",
                 help="Pixels sous ce score rejetés (nuages, ombres, brume). "
                      "Plus haut = plus strict.",
+                disabled=locked,
             )
             cloud_buffer_m = st.select_slider(
                 "Marge autour des nuages (m)", options=[0, 10, 20, 40, 60], key="set_cloudbuf",
+                disabled=locked,
             )
             iqr_k = st.select_slider(
                 "Exclusion des valeurs aberrantes (k × IQR)", options=[1.0, 1.5, 2.0, 3.0],
                 key="set_iqr",
                 help="Pixels hors [Q1 − k·IQR ; Q3 + k·IQR] exclus. Plus haut = moins d'exclusions.",
+                disabled=locked,
             )
             min_clear = st.slider("Part minimale de pixels clairs (%)", 0, 100, step=5,
                                   key="set_minclear")

@@ -55,6 +55,14 @@ Bouton « Enregistrer l'analyse » de l'onglet temporel : fichier .zip contenant
 « Ouvrir une analyse enregistrée » en haut de page restaure réglages et résultats
 sans requête Earth Engine. Supprimer une analyse = supprimer le fichier.
 
+**Compléter une analyse enregistrée (v3.1)** : après l'avoir rouverte, choisir un mois de
+début plus tôt et/ou un mois de fin plus tard, puis « Rechercher les dates disponibles ».
+Seules les dates pas encore analysées sont proposées, avec le filtre de ciel clair, et une frise
+montre ce qui est déjà analysé et ce qui manque. « Compléter l'analyse » ne calcule que ces
+dates, puis « Enregistrer l'analyse » enregistre la version complétée. Le buffer et le masque
+nuages sont verrouillés sur ceux de l'analyse ouverte, pour que toutes les dates soient
+calculées de la même façon.
+
 ## Organisation du code
 
 Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) : calculs (`ndvi_app/core`), accès

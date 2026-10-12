@@ -205,3 +205,67 @@ def dates_timeline(meas, period_start, period_end, current, height=80):
     ).add_params(pick)
     return (alt.layer(base_line, cur, pts).properties(height=height)
             .configure_axisY(minExtent=AXIS_Y_WIDTH).configure_view(stroke=None))
+
+
+# ------------------------------------------------------------------ couverture des dates
+COVERAGE_CATS = ["Déjà analysée", "Nouvelle, sélectionnée", "Nouvelle, non sélectionnée"]
+COVERAGE_COLORS = [CURVE_COLOR, "#e8871e", MUTED]
+LANE_DONE, LANE_NEW = "Déjà analysées", "Disponibles"
+GAP_COLOR = "#e34948"
+GAP_DAYS = 20
+
+
+def coverage_timeline(done_dates, new_items, selected, period_start, period_end, old_period,
+                      gap_days=GAP_DAYS, height=190):
+    """
+    Frise pour compléter une analyse, sur deux lignes :
+      « Déjà analysées » : dates présentes dans l'analyse ;
+      « Disponibles »    : dates pas encore analysées, pleines si sélectionnées, vides sinon.
+    Tirets gris : bornes de la période déjà analysée. Bandes rouges : plus de `gap_days` jours
+    sans image analysée une fois la sélection ajoutée (bords de période compris).
+    done_dates : dates (datetime.date) déjà dans l'analyse
+    new_items  : entrées de list_dates non encore analysées
+    selected   : dates (datetime.date) choisies parmi new_items
+    """
+    p0, p1 = pd.Timestamp(period_start), pd.Timestamp(period_end)
+    sel = set(selected)
+    rows = [{"Date": pd.Timestamp(d), "Categorie": COVERAGE_CATS[0], "y": 1, "Ciel": None}
+            for d in done_dates]
+    rows += [{"Date": pd.Timestamp(it["date"]),
+              "Categorie": COVERAGE_CATS[1] if it["date"] in sel else COVERAGE_CATS[2],
+              "y": 0, "Ciel": it.get("clear_pct")} for it in new_items]
+    pts_df = pd.DataFrame(rows, columns=["Date", "Categorie", "y", "Ciel"])
+
+    future = sorted({pd.Timestamp(d) for d in done_dates} | {pd.Timestamp(d) for d in sel})
+    bounds = [p0 - pd.Timedelta(days=1)] + future + [p1 + pd.Timedelta(days=1)]
+    gaps = [{"x0": a, "x1": b, "Jours": (b - a).days - 1}
+            for a, b in zip(bounds[:-1], bounds[1:]) if (b - a).days - 1 > gap_days]
+
+    x_scale = alt.Scale(domain=[p0, p1])
+    x_enc = alt.X("Date:T", scale=x_scale, axis=_x_axis(p0, p1))
+    y_enc = alt.Y("y:Q", scale=alt.Scale(domain=[-0.7, 1.7]),
+                  axis=alt.Axis(title=None, values=[0, 1], grid=False, domain=False, ticks=False,
+                                labelColor=MUTED, labelFontSize=11, labelPadding=6,
+                                labelExpr=f"datum.value == 1 ? '{LANE_DONE}' : '{LANE_NEW}'"))
+    layers = []
+    if gaps:
+        layers.append(alt.Chart(pd.DataFrame(gaps)).mark_rect(color=GAP_COLOR, opacity=0.15).encode(
+            x=alt.X("x0:T", scale=x_scale, title=None), x2="x1:T",
+            tooltip=[alt.Tooltip("Jours:Q", title=f"Jours sans image analysée (> {gap_days})")]))
+    old = pd.DataFrame({"Date": [pd.Timestamp(old_period[0]), pd.Timestamp(old_period[1])],
+                        "Borne": ["Début de l'analyse existante", "Fin de l'analyse existante"]})
+    layers.append(alt.Chart(old).mark_rule(color=MUTED, strokeDash=[4, 3], strokeWidth=1.5).encode(
+        x=x_enc, tooltip=[alt.Tooltip("Borne:N", title="Repère"),
+                          alt.Tooltip("Date:T", title="Date", format="%d/%m/%Y")]))
+    color = alt.Color("Categorie:N", scale=alt.Scale(domain=COVERAGE_CATS, range=COVERAGE_COLORS),
+                      legend=alt.Legend(orient="bottom", title=None))
+    tooltip = [alt.Tooltip("Date:T", title="Date", format="%d/%m/%Y"),
+               alt.Tooltip("Categorie:N", title="État"),
+               alt.Tooltip("Ciel:Q", title="Ciel clair (%)", format=".0f")]
+    hollow = pts_df["Categorie"] == COVERAGE_CATS[2]
+    layers.append(alt.Chart(pts_df[hollow]).mark_point(size=70, filled=False, strokeWidth=1.5)
+                  .encode(x=x_enc, y=y_enc, color=color, tooltip=tooltip))
+    layers.append(alt.Chart(pts_df[~hollow]).mark_circle(size=70, opacity=1)
+                  .encode(x=x_enc, y=y_enc, color=color, tooltip=tooltip))
+    return (alt.layer(*layers).properties(height=height)
+            .configure_axisY(minExtent=90).configure_view(stroke=None))

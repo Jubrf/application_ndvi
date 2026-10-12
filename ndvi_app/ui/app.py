@@ -33,7 +33,7 @@ def main():
 
     _connect_earth_engine()
     state.init_settings()
-    settings = render_sidebar()
+    settings = render_sidebar(locked=state.session_lock() is not None)
     ctx = Context(settings=settings, parcels=load_parcels(settings))
 
     tab1, tab2 = st.tabs(["📅 Analyse à une date", "📈 Analyse temporelle"])

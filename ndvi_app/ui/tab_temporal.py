@@ -14,12 +14,12 @@ from ndvi_app.core.session_format import build_session_zip
 from ndvi_app.core.timeseries import analyse_all
 from ndvi_app.exports.excel import XLSX_MIME, to_excel
 from ndvi_app.exports.excel_charts import MAX_CHARTS, add_parcel_charts
-from ndvi_app.ui.charts import dates_timeline, ndti_chart, parcel_chart
+from ndvi_app.ui.charts import GAP_DAYS, coverage_timeline, dates_timeline, ndti_chart, parcel_chart
 from ndvi_app.ui.columns import DETAIL_COLS, SYNTH_COLS, TECH_COLS, column_config, pick
 from ndvi_app.ui.context import Context
-from ndvi_app.ui.formatting import date_label, fmt, fr_decimal, usable
+from ndvi_app.ui.formatting import covers, date_label, fmt, fr_decimal, usable
 from ndvi_app.ui.maps import phase_map
-from ndvi_app.ui.state import stale_warning
+from ndvi_app.ui.state import session_lock, stale_warning
 from ndvi_app.ui.thumbnail import satellite_view
 
 NO_PHASE = "Aucune courbe"
@@ -68,8 +68,34 @@ def _period():
 
 
 # ------------------------------------------------------------------ 2. dates et calcul
+def _extend_mode(ctx: Context, period_start, period_end):
+    """Compléter l'analyse existante plutôt que la remplacer ?
+    Oui si des résultats existent, calculés avec les paramètres actuels, et si la période
+    choisie contient celle déjà analysée (on ne fait qu'agrandir). Pour une analyse faite
+    dans la séance (non rouverte), la même période permet toujours de la refaire autrement."""
+    if not st.session_state.get("mt_raw"):
+        return False
+    p0, p1 = st.session_state.mt_period
+    if session_lock() is None and (period_start, period_end) == (p0, p1):
+        return False
+    return (period_start <= p0 and p1 <= period_end
+            and st.session_state.mt_ctx == ctx.calc_context())
+
+
 def _select_and_run(ctx: Context, period_start, period_end):
-    min_clear = ctx.settings.min_clear
+    extend = _extend_mode(ctx, period_start, period_end)
+    if session_lock() is not None and not extend:
+        # Analyse enregistrée ouverte : seul l'agrandissement de la période est possible
+        p0, p1 = st.session_state.mt_period
+        if period_start <= p0 and p1 <= period_end:
+            st.warning("Les paramètres de calcul enregistrés dans ce fichier ne correspondent pas "
+                       "à ceux de cette version de l'application : l'analyse ne peut pas être "
+                       "complétée (les nouvelles dates ne seraient pas comparables).")
+            return
+        st.warning(f"Pour compléter l'analyse enregistrée, la période doit contenir celle déjà "
+                   f"analysée (du {p0:%d/%m/%Y} au {p1:%d/%m/%Y}) : choisis un mois de début "
+                   "identique ou antérieur et un mois de fin identique ou postérieur.")
+        return
     if st.button("🔍 Rechercher les dates disponibles", key="mt_btn_search"):
         st.session_state.mt_query = (period_start, period_end)
 
@@ -83,15 +109,44 @@ def _select_and_run(ctx: Context, period_start, period_end):
     if not dates:
         st.info("Aucune image Sentinel-2 sur cette période.")
         return
+    if extend:
+        _select_and_extend(ctx, dates, period_start, period_end)
+    else:
+        _select_and_run_new(ctx, dates, period_start, period_end)
 
-    st.subheader("2. Dates à analyser")
-    presel = st.slider(
-        "Présélection : ciel clair minimum sur l'ensemble des parcelles (%)",
-        0, 100, 20, 10, key="mt_presel",
+
+def _presel_slider(label):
+    # Valeur gardée même quand le curseur n'est pas affiché (changement de période)
+    value = st.slider(
+        label, 0, 100, st.session_state.get("mt_presel_keep", 20), 10, key="mt_presel",
         help="Une date partiellement nuageuse peut rester exploitable pour une partie "
              "des parcelles : le contrôle se fait ensuite parcelle par parcelle, "
              "et les mesures douteuses sont écartées de la courbe.",
     )
+    st.session_state["mt_presel_keep"] = value
+    return value
+
+
+def _run_dates(ctx: Context, dates, calc=None, geoinfo=None):
+    """Calcule les dates une par une avec barre de progression. Retourne (raws, erreurs)."""
+    raws, errors = [], []
+    bar = st.progress(0.0, text="Initialisation…")
+    for i, d in enumerate(sorted(dates)):
+        bar.progress(i / len(dates), text=f"{d:%d/%m/%Y} ({i + 1}/{len(dates)})…")
+        try:
+            raws.append((str(d), ctx.run_analysis(str(d), calc, geoinfo)))
+        except Exception as e:
+            errors.append(f"{d:%d/%m/%Y} : {type(e).__name__} — {e}")
+    bar.empty()
+    return raws, errors
+
+
+def _select_and_run_new(ctx: Context, dates, period_start, period_end):
+    """Nouvelle analyse : toutes les dates de la période sont proposées."""
+    min_clear = ctx.settings.min_clear
+
+    st.subheader("2. Dates à analyser")
+    presel = _presel_slider("Présélection : ciel clair minimum sur l'ensemble des parcelles (%)")
     default = [d["date"] for d in dates if usable(d, presel)]
     by_date = {d["date"]: d for d in dates}
     sel = st.multiselect(
@@ -107,20 +162,84 @@ def _select_and_run(ctx: Context, period_start, period_end):
     st.caption(f"{len(sel)} date(s) × {len(ctx.parcels.features)} parcelles — une requête "
                f"Earth Engine par date, environ 2 à 5 s chacune (instantané si déjà calculée).")
     if st.button("▶️ Lancer l'analyse temporelle", key="mt_btn_run"):
-        raws, errors = [], []
-        bar = st.progress(0.0, text="Initialisation…")
-        for i, d in enumerate(sorted(sel)):
-            bar.progress(i / len(sel), text=f"{d:%d/%m/%Y} ({i + 1}/{len(sel)})…")
-            try:
-                raws.append((str(d), ctx.run_analysis(str(d))))
-            except Exception as e:
-                errors.append(f"{d:%d/%m/%Y} : {type(e).__name__} — {e}")
-        bar.empty()
+        raws, errors = _run_dates(ctx, sel)
         st.session_state.mt_raw = raws
         st.session_state.mt_period = (period_start, period_end)
         st.session_state.mt_ctx = ctx.calc_context()
         st.session_state.mt_geoinfo = ctx.parcels.geoinfo
         st.session_state.mt_errors = errors
+
+
+def _error_date(err):
+    """Date ISO d'un message d'erreur « jj/mm/aaaa : … »."""
+    try:
+        return datetime.datetime.strptime(err[:10], "%d/%m/%Y").date().isoformat()
+    except ValueError:
+        return None
+
+
+def _select_and_extend(ctx: Context, dates, period_start, period_end):
+    """Compléter l'analyse : seules les dates pas encore analysées sont proposées et calculées,
+    avec les paramètres et les géométries de l'analyse existante."""
+    min_clear = ctx.settings.min_clear
+    done = sorted(datetime.date.fromisoformat(d) for d, _ in st.session_state.mt_raw)
+    done_set = set(done)
+    old0, old1 = st.session_state.mt_period
+    not_done = [d for d in dates if d["date"] not in done_set]
+    new = [d for d in not_done if covers(d)]          # images qui couvrent les parcelles
+    n_outside = len(not_done) - len(new)
+
+    st.subheader("2. Dates à ajouter")
+    n_before = sum(1 for d in new if d["date"] < old0)
+    n_after = sum(1 for d in new if d["date"] > old1)
+    n_inside = len(new) - n_before - n_after
+    st.caption(f"{len(done)} date(s) déjà analysée(s) (du {old0:%d/%m/%Y} au {old1:%d/%m/%Y}) · "
+               f"{len(new)} date(s) disponible(s) non analysée(s) : {n_before} avant, "
+               f"{n_inside} dans la période déjà analysée, {n_after} après"
+               + (f" ({n_outside} autre(s) image(s) ne couvrant pas les parcelles, non proposée(s))"
+                  if n_outside else "")
+               + ". Les dates déjà analysées ne sont pas recalculées.")
+    timeline_slot = st.empty()
+    if not new:
+        timeline_slot.altair_chart(coverage_timeline(done, [], [], period_start, period_end,
+                                                     (old0, old1)), width="stretch")
+        st.info("Toutes les dates disponibles sur cette période sont déjà analysées.")
+        return
+
+    presel = _presel_slider("Présélection des dates à ajouter : ciel clair minimum sur "
+                            "l'ensemble des parcelles (%)")
+    default = [d["date"] for d in new if usable(d, presel)]
+    by_date = {d["date"]: d for d in new}
+    sel = st.multiselect(
+        f"{len(new)} date(s) à ajouter possible(s), {len(default)} présélectionnée(s)",
+        options=[d["date"] for d in new], default=default,
+        format_func=lambda x: date_label(by_date[x], min_clear),
+        key=f"mt_extsel_{presel}_{period_start}_{period_end}",
+    )
+    with timeline_slot.container():
+        st.altair_chart(coverage_timeline(done, new, sel, period_start, period_end, (old0, old1)),
+                        width="stretch")
+        st.caption("Ligne du haut : dates déjà analysées. Ligne du bas : dates disponibles, "
+                   "orange si sélectionnées, cercle vide sinon (survol : % de ciel clair). "
+                   "Tirets : début et fin de l'analyse existante. Bande rouge : plus de "
+                   f"{GAP_DAYS} jours sans image analysée, sélection comprise.")
+    if not sel:
+        st.info("Sélectionne au moins une date à ajouter.")
+        return
+
+    st.caption(f"{len(sel)} date(s) × {len(ctx.parcels.features)} parcelles — seules ces dates "
+               "sont envoyées à Earth Engine, avec les paramètres de l'analyse existante.")
+    if st.button(f"➕ Compléter l'analyse ({len(sel)} date(s))", key="mt_btn_extend"):
+        raws, errors = _run_dates(ctx, sel, calc=st.session_state.mt_ctx,
+                                  geoinfo=st.session_state.mt_geoinfo)
+        added = {d for d, _ in raws}
+        old_errors = [e for e in st.session_state.get("mt_errors", [])
+                      if _error_date(e) not in added]
+        st.session_state.mt_raw = sorted(st.session_state.mt_raw + raws, key=lambda r: r[0])
+        st.session_state.mt_period = (period_start, period_end)
+        st.session_state.mt_errors = old_errors + errors
+        st.session_state.mt_added = len(raws)
+        st.rerun()      # page redessinée avec les dates ajoutées (frise, liste des dates restantes)
 
 
 # ------------------------------------------------------------------ 3. résultats
@@ -141,21 +260,42 @@ def _results(ctx: Context):
     n_kept = int(synthese["Mesures_retenues"].sum())
     st.success(f"Du {p_start:%d/%m/%Y} au {p_end:%d/%m/%Y} — {df_long['Date'].nunique()} date(s) "
                f"× {len(synthese)} parcelles — {n_kept} mesures retenues pour les courbes")
+    added = st.session_state.pop("mt_added", None)
+    if added is not None:
+        st.info(f"Analyse complétée : {added} date(s) ajoutée(s). Pense à l'enregistrer "
+                "(bouton en bas de page) pour garder les nouvelles dates.")
 
     synth_view, pid_list = _synthesis_table(ctx, synthese)
     _parcel_detail(ctx, synthese, detail, courbes, pid_list, p_start, p_end)
     _phase_map_section(ctx, synthese, detail, courbes, p_start, p_end)
 
-    pivot = (detail[detail["Retenue"] == "Oui"]
-             .assign(Date=lambda x: x["Date"].dt.strftime("%Y-%m-%d"))
-             .pivot_table(index="ID", columns="Date", values="NDVI", aggfunc="first")
-             .reindex(pid_list).reset_index())
-    pivot.columns.name = None
+    pivot_all = (detail[detail["Retenue"] == "Oui"]
+                 .assign(Date=lambda x: x["Date"].dt.strftime("%Y-%m-%d"))
+                 .pivot_table(index="ID", columns="Date", values="NDVI", aggfunc="first"))
     with st.expander("NDVI par parcelle et par date (mesures retenues)"):
-        st.dataframe(pivot, hide_index=True)
+        st.dataframe(_pivot(pivot_all, pid_list), hide_index=True)   # parcelles filtrées
 
-    _excel_export(ctx, synth_view, pivot, synthese, detail, courbes, df_long, p_start, p_end)
+    # Export : toutes les parcelles, quels que soient les filtres du tableau
+    _excel_export(ctx, synth_view, _pivot(pivot_all, list(synthese["ID"])), synthese, detail,
+                  courbes, df_long, p_start, p_end)
     _save_button(ctx, p_start, p_end)
+
+
+def _filter(label, options, key):
+    """Filtre à choix multiples, tout coché par défaut. Si les valeurs possibles changent
+    (dates ajoutées, autres seuils), le filtre repart de « tout coché » : une nouvelle valeur
+    ne doit pas masquer des parcelles sans qu'on l'ait décoché soi-même."""
+    if st.session_state.get(f"{key}_options") != options:
+        st.session_state[f"{key}_options"] = options
+        st.session_state.pop(key, None)
+    return st.multiselect(label, options, default=options, key=key)
+
+
+def _pivot(pivot_all, ids):
+    """Tableau NDVI par parcelle (lignes, dans l'ordre de ids) et par date (colonnes)."""
+    out = pivot_all.reindex(ids).reset_index()
+    out.columns.name = None
+    return out
 
 
 def _synthesis_table(ctx: Context, synthese):
@@ -167,12 +307,11 @@ def _synthesis_table(ctx: Context, synthese):
     c1, c2 = st.columns(2)
     with c1:
         ph_opts = [ph for ph in list(COLOR_MAP) + [NO_PHASE] if ph in set(phase_vals)]
-        f_phase = st.multiselect("Filtrer : phase en fin de période", ph_opts, default=ph_opts,
-                                 key="mt_f_phase")
+        f_phase = _filter("Filtrer : phase en fin de période", ph_opts, "mt_f_phase")
     with c2:
         cf_opts = [c for c in ["Bonne", "Moyenne", "Faible", "Aucune mesure"]
                    if c in set(synth_view["Confiance"])]
-        f_conf = st.multiselect("Filtrer : confiance", cf_opts, default=cf_opts, key="mt_f_conf")
+        f_conf = _filter("Filtrer : confiance", cf_opts, "mt_f_conf")
     shown = synth_view[phase_vals.isin(f_phase) & synth_view["Confiance"].isin(f_conf)]
     shown = shown.reset_index(drop=True)
     st.caption(f"{len(shown)} parcelle(s) affichée(s) sur {len(synth_view)}. Clique sur une "
