@@ -2,7 +2,8 @@
 Page « Vue d'ensemble » : toutes les parcelles d'un coup d'œil.
 
 Chiffres clés et filtres, puis trois présentations du même ensemble de parcelles :
-  Évolution des phases : frise des phases sur la période et mini-courbe NDVI par parcelle ;
+  Évolution des phases : courbe NDVI et barre des phases de chaque parcelle, sur la même
+                         échelle de temps (mois repérés) ;
   Valeurs NDVI par date : tableau des mesures retenues, teinté selon la phase ;
   Synthèse détaillée : tableau de synthèse complet (chronologie, trous, mesures…).
 Un clic sur une ligne ouvre la fiche de la parcelle.
@@ -14,7 +15,7 @@ import streamlit as st
 
 from ndvi_app.config import COLOR_MAP, PHASE_BIEN, PHASE_NU, PHASE_PEU
 from ndvi_app.ui.banner import pivot_all, pivot_for
-from ndvi_app.ui.charts import phase_strip_uri, sparkline_values
+from ndvi_app.ui.charts import phase_evolution_uri
 from ndvi_app.ui.columns import SYNTH_COLS, column_config, pick
 
 NO_PHASE = "Aucune courbe"
@@ -78,7 +79,7 @@ def render(app):
     table_key = "ov_table_" + hashlib.md5(
         "|".join([view, f_phase, query or ""] + sorted(f_conf)).encode()).hexdigest()[:8]
     if view == VIEWS[0]:
-        event = _evolution_table(shown, res, table_key)
+        event = _evolution_table(shown, res, s, table_key)
     elif view == VIEWS[1]:
         event = _values_table(shown, res, s, table_key)
     else:
@@ -89,7 +90,7 @@ def render(app):
     _open_selected(app, shown, event, table_key)
 
 
-def _evolution_table(shown, res, key):
+def _evolution_table(shown, res, settings, key):
     curves = {pid: c for pid, c in res.courbes.groupby("ID")}
     empty = res.courbes.iloc[0:0]
     rows = []
@@ -97,8 +98,7 @@ def _evolution_table(shown, res, key):
         c = curves.get(r["ID"], empty)
         rows.append({
             "ID": r["ID"], "Surface_ha": r["Surface_ha"],
-            "Evolution": phase_strip_uri(c, res.p_start, res.p_end),
-            "Courbe": sparkline_values(c),
+            "Evolution": phase_evolution_uri(c, res.p_start, res.p_end, settings.low, settings.high),
             "NDVI_fin": r["NDVI_fin"], "Phase_fin": r["Phase_fin"] if pd.notna(r["Phase_fin"]) else NO_PHASE,
             "Confiance": r["Confiance"], "Baisses_rapides": r["Baisses_rapides"],
         })
@@ -108,18 +108,19 @@ def _evolution_table(shown, res, key):
         "ID": st.column_config.TextColumn("Parcelle", pinned=True),
         "Surface_ha": st.column_config.NumberColumn("Surface (ha)", format="%.2f"),
         "Evolution": st.column_config.ImageColumn(
-            f"Évolution des phases ({months})", width="large",
-            help="Rouge : sol nu · vert clair : couvert peu développé · vert foncé : couvert bien "
-                 "développé · teinte atténuée : courbe interpolée à plus de 15 jours d'une mesure · "
-                 "gris : pas de courbe (avant la 1re ou après la dernière mesure retenue)."),
-        "Courbe": st.column_config.LineChartColumn("Courbe NDVI", y_min=0, y_max=1, width="medium",
-                                                   help="Courbe lissée, un point par semaine."),
+            f"NDVI et phases ({months})", width="large",
+            help="En haut : courbe NDVI lissée (0 en bas, 1 en haut), pointillés horizontaux aux "
+                 "seuils des phases. En bas : phase de la courbe. Rouge : sol nu · vert clair : "
+                 "couvert peu développé · vert foncé : couvert bien développé · gris : pas de "
+                 "courbe (avant la 1re ou après la dernière mesure retenue). Courbe en pointillé "
+                 "et teinte atténuée : interpolée à plus de 15 jours d'une mesure. Traits : 1er "
+                 "de chaque mois, même échelle de temps pour toutes les parcelles."),
         "NDVI_fin": st.column_config.NumberColumn("NDVI fin", format="%.2f"),
         "Phase_fin": st.column_config.TextColumn("Phase fin", width="medium"),
         "Confiance": st.column_config.TextColumn("Confiance"),
         "Baisses_rapides": st.column_config.TextColumn("Baisse rapide", width="medium"),
     }
-    return st.dataframe(df, hide_index=True, column_config=cfg, row_height=40,
+    return st.dataframe(df, hide_index=True, column_config=cfg, row_height=72,
                         on_select="rerun", selection_mode="single-row", key=key)
 
 

@@ -57,7 +57,7 @@ ndvi_app/
     maps.py                 carte des phases + boutons KML / HTML
     thumbnail.py            vignette satellite d'une parcelle
     charts.py               graphiques Altair (courbe NDVI, panneau NDTI, frise des dates),
-                            barre des phases et mini-courbe de la vue d'ensemble
+                            image « courbe NDVI + barre des phases » de la vue d'ensemble
     columns.py              colonnes des tableaux et leurs définitions
     formatting.py           mise en forme des nombres et des libellés de dates
 ```
@@ -84,7 +84,7 @@ Streamlit réexécute tout le script à chaque interaction.
 | Page | Adresse | Contenu |
 |---|---|---|
 | Projet | `/projet` | source, fichier, identifiant, étapes, période et dates à analyser |
-| Vue d'ensemble | `/vue-ensemble` | 5 chiffres clés, filtres (phase, confiance, recherche), présentations « Évolution des phases » (barre des phases + mini-courbe), « Valeurs NDVI par date », « Synthèse détaillée » ; un clic sur une ligne ouvre la fiche |
+| Vue d'ensemble | `/vue-ensemble` | 5 chiffres clés, filtres (phase, confiance, recherche), présentations « Évolution des phases » (courbe NDVI au-dessus de la barre des phases, même échelle de temps, mois repérés), « Valeurs NDVI par date », « Synthèse détaillée » ; un clic sur une ligne ouvre la fiche |
 | Fiche parcelle | `/fiche-parcelle` | parcelle précédente / suivante parmi celles filtrées, courbe NDVI, NDTI, vignette, mesures |
 | Carte | `/carte` | carte des phases à une date choisie sur la frise, exports KML / HTML |
 | Une date | `/une-date` | analyse ponctuelle, inchangée |

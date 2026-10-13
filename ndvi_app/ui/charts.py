@@ -272,43 +272,117 @@ def coverage_timeline(done_dates, new_items, selected, period_start, period_end,
 
 
 # ------------------------------------------------------------------ vue d'ensemble
-STRIP_W, STRIP_H = 320, 30   # proportions d'une cellule de tableau (image ajustée sans recadrage)
-STRIP_BAR = 16               # hauteur de la barre, centrée
+# Image SVG d'une cellule du tableau « Évolution des phases » : courbe NDVI lissée au-dessus
+# de la barre des phases, sur la même échelle de temps (toute la période), traits au 1er de
+# chaque mois et noms des mois. Mêmes proportions pour toutes les lignes : les dates sont
+# alignées d'une parcelle à l'autre.
+EVO_W, EVO_H = 320, 66
+EVO_CURVE = (2, 34)          # haut et hauteur de la zone de courbe (NDVI 1 en haut, 0 en bas)
+EVO_BAR = (40, 12)           # haut et hauteur de la barre des phases
+EVO_LABEL_Y = 64             # ligne de base des noms de mois
+EVO_LINE = "#1A7F4B"         # courbe (couleur principale de l'appli)
+EVO_GRID = "#C9CCD3"         # seuils et traits de mois dans la zone de courbe
+EVO_TEXT = "#6B6F7A"         # noms de mois
 STRIP_EMPTY = "#E6E7EB"      # pas de courbe (avant la 1re / après la dernière mesure retenue)
+_MONTH_ABBR = ["jan", "fév", "mar", "avr", "mai", "juin", "juil", "août", "sep", "oct", "nov", "déc"]
+_MONTH_INITIAL = "JFMAMJJASOND"
 
 
-def phase_strip_uri(curve, period_start, period_end):
+def _evo_bar(c, x):
+    y, h = EVO_BAR
+    out = [f'<rect x="0" y="{y}" width="{EVO_W}" height="{h}" fill="{STRIP_EMPTY}"/>']
+    if c.empty:
+        return out
+    dates, phases, unc = list(c["Date"]), list(c["Phase"]), list(c["Incertain"])
+    start = 0
+    for i in range(1, len(c) + 1):
+        if i == len(c) or phases[i] != phases[start] or bool(unc[i]) != bool(unc[start]):
+            x0, x1 = x(dates[start]), x(dates[i - 1] + pd.Timedelta(days=1))
+            op = 0.45 if unc[start] else 1
+            out.append(f'<rect x="{x0:.1f}" y="{y}" width="{max(x1 - x0, 0.6):.1f}" height="{h}" '
+                       f'fill="{PHASE_TINTS.get(phases[start], STRIP_EMPTY)}" fill-opacity="{op}"/>')
+            start = i
+    return out
+
+
+def _evo_curve(c, x, low, high):
+    top, h = EVO_CURVE
+    yv = lambda v: top + (1 - min(max(float(v), 0.0), 1.0)) * h
+    out = [f'<line x1="0" x2="{EVO_W}" y1="{yv(t):.1f}" y2="{yv(t):.1f}" stroke="{EVO_GRID}" '
+           f'stroke-dasharray="2 3" stroke-width="0.8"/>' for t in (low, high)]
+    if c.empty:
+        return out
+    pts = c.iloc[::2]
+    if pts.index[-1] != c.index[-1]:                 # toujours le dernier jour de la courbe
+        pts = pd.concat([pts, c.iloc[[-1]]])
+    seg, seg_unc = [], None
+
+    def flush():
+        if len(seg) > 1:
+            dash = ' stroke-dasharray="3 2" stroke-opacity="0.55"' if seg_unc else ""
+            out.append(f'<polyline fill="none" stroke="{EVO_LINE}" stroke-width="1.6"{dash} '
+                       f'points="{" ".join(seg)}"/>')
+
+    for d, v, u in zip(pts["Date"], pts["NDVI_lisse"], pts["Incertain"]):
+        pt, u = f"{x(d):.1f},{yv(v):.1f}", bool(u)
+        if seg_unc is not None and u != seg_unc:
+            seg.append(pt)                           # segments jointifs
+            flush()
+            seg = [pt]
+        else:
+            seg.append(pt)
+        seg_unc = u
+    flush()
+    return out
+
+
+def _evo_months(p0, p1, x):
+    """Traits au 1er de chaque mois et noms des mois (initiale si la place manque) ;
+    au 1er janvier et années pour les périodes trop longues pour lire les mois."""
+    firsts = list(pd.date_range(p0 + pd.Timedelta(days=1), p1, freq="MS"))
+    by_year = EVO_W / max(len(firsts) + 1, 1) < 8
+    if by_year:
+        firsts = [d for d in firsts if d.month == 1]
+    top, h = EVO_CURVE
+    by, bh = EVO_BAR
+    out = []
+    for d in firsts:
+        xd = f"{x(d):.1f}"
+        year = d.month == 1
+        out.append(f'<line x1="{xd}" x2="{xd}" y1="{top}" y2="{top + h}" stroke="{EVO_GRID}" '
+                   f'stroke-opacity="{1 if year else 0.7}" stroke-width="1"/>')
+        out.append(f'<line x1="{xd}" x2="{xd}" y1="{by}" y2="{by + bh}" stroke="#FFFFFF" '
+                   f'stroke-opacity="0.9" stroke-width="1"/>')
+        out.append(f'<line x1="{xd}" x2="{xd}" y1="{by + bh}" y2="{by + bh + 3}" '
+                   f'stroke="{EVO_TEXT if year else EVO_GRID}" stroke-width="1"/>')
+    bounds = [p0] + firsts + [p1 + pd.Timedelta(days=1)]
+    for a, b in zip(bounds[:-1], bounds[1:]):
+        width = x(b) - x(a)
+        if width < 8:
+            continue
+        if by_year:
+            label = str(a.year) if width >= 24 else f"{a.year % 100:02d}"
+        else:
+            label = _MONTH_ABBR[a.month - 1] if width >= 24 else _MONTH_INITIAL[a.month - 1]
+        out.append(f'<text x="{(x(a) + x(b)) / 2:.1f}" y="{EVO_LABEL_Y}" font-size="9.5" '
+                   f'fill="{EVO_TEXT}" text-anchor="middle" '
+                   f'font-family="Source Sans Pro, Arial, sans-serif">{label}</text>')
+    return out
+
+
+def phase_evolution_uri(curve, period_start, period_end, low, high):
     """
-    Frise des phases d'une parcelle sur la période, en image SVG (data URI) pour une colonne
-    d'image de st.dataframe. curve : lignes de la courbe lissée d'une parcelle
-    (Date, Phase, Incertain). Teinte atténuée là où la courbe est interpolée loin des mesures.
+    Courbe NDVI lissée et barre des phases d'une parcelle sur toute la période, en image SVG
+    (data URI) pour une colonne d'image de st.dataframe. curve : lignes de la courbe lissée
+    (Date, NDVI_lisse, Phase, Incertain). Pointillés horizontaux : seuils des phases. Courbe
+    en pointillé et teinte atténuée là où la courbe est interpolée loin de toute mesure.
     """
     import base64
     p0, p1 = pd.Timestamp(period_start), pd.Timestamp(period_end)
     span = max((p1 - p0).days + 1, 1)
-    rects, y0 = [], (STRIP_H - STRIP_BAR) // 2
-    if not curve.empty:
-        c = curve.sort_values("Date")
-        dates, phases, unc = list(c["Date"]), list(c["Phase"]), list(c["Incertain"])
-        start = 0
-        for i in range(1, len(c) + 1):
-            if i == len(c) or phases[i] != phases[start] or bool(unc[i]) != bool(unc[start]):
-                x0 = (dates[start] - p0).days / span * STRIP_W
-                x1 = ((dates[i - 1] - p0).days + 1) / span * STRIP_W
-                op = 0.45 if unc[start] else 1
-                rects.append(f'<rect x="{x0:.1f}" y="{y0}" width="{max(x1 - x0, 0.6):.1f}" '
-                             f'height="{STRIP_BAR}" fill="{PHASE_TINTS.get(phases[start], STRIP_EMPTY)}" '
-                             f'fill-opacity="{op}"/>')
-                start = i
-    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{STRIP_W}" height="{STRIP_H}" '
-           f'viewBox="0 0 {STRIP_W} {STRIP_H}"><rect y="{y0}" width="{STRIP_W}" height="{STRIP_BAR}" '
-           f'fill="{STRIP_EMPTY}"/>{"".join(rects)}</svg>')
+    x = lambda d: (pd.Timestamp(d) - p0).days / span * EVO_W
+    c = curve.sort_values("Date") if not curve.empty else curve
+    parts = _evo_curve(c, x, low, high) + _evo_bar(c, x) + _evo_months(p0, p1, x)
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{EVO_W}" height="{EVO_H}" '
+           f'viewBox="0 0 {EVO_W} {EVO_H}">{"".join(parts)}</svg>')
     return "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
-
-
-def sparkline_values(curve, step_days=7):
-    """Valeurs de la courbe lissée tous les `step_days` jours (colonne de mini-courbes)."""
-    if curve.empty:
-        return []
-    c = curve.sort_values("Date")
-    return [round(float(v), 3) for v in c["NDVI_lisse"].iloc[::step_days]]

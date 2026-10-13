@@ -3,14 +3,15 @@
 Application Streamlit + Google Earth Engine pour suivre la couverture des sols
 à la parcelle à partir du NDVI Sentinel-2.
 
-## Interface (v4.0)
+## Interface (v4)
 
 Menu en haut de page, barre latérale de réglages commune à toutes les pages :
 - **Projet** : fichier de parcelles ou analyse enregistrée, période, recherche et choix des
   dates, lancement ou complément de l'analyse ;
-- **Vue d'ensemble** : chiffres clés, filtres et tableau de toutes les parcelles, avec la barre
-  d'évolution des phases et la mini-courbe NDVI, les valeurs NDVI par date ou la synthèse
-  détaillée ; un clic sur une ligne ouvre la fiche ;
+- **Vue d'ensemble** : chiffres clés, filtres et tableau de toutes les parcelles, avec pour
+  chacune la courbe NDVI au-dessus de la barre des phases (même échelle de temps, mois repérés,
+  v4.1), les valeurs NDVI par date ou la synthèse détaillée ; un clic sur une ligne ouvre la
+  fiche ;
 - **Fiche parcelle** : courbe NDVI, NDTI, vignette satellite et mesures d'une parcelle ;
 - **Carte** : carte des phases à une date, exports KML et HTML ;
 - **Une date** : analyse ponctuelle à une date.
