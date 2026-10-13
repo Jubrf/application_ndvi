@@ -20,6 +20,10 @@ from shapely.geometry import shape
 from shapely.ops import transform
 
 
+class VectorFileError(ValueError):
+    """Fichier de parcelles illisible : le message s'adresse à l'utilisateur."""
+
+
 def load_vector_from_bytes(file_bytes, filename):
     """
     file_bytes : contenu du fichier déposé
@@ -40,8 +44,13 @@ def load_vector_from_bytes(file_bytes, filename):
 
 
 def _read_geojson(path):
-    with open(path, "r") as f:
-        data = json.load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data["features"]
+    except (ValueError, KeyError, TypeError):
+        raise VectorFileError("Fichier GeoJSON illisible. Dépose un ZIP contenant un shapefile "
+                              "(.shp, .shx, .dbf, .prj) ou un GeoJSON valide.") from None
     return [{"geometry": shape(feat["geometry"]), "properties": feat.get("properties", {})}
             for feat in data["features"]]
 
@@ -49,18 +58,24 @@ def _read_geojson(path):
 def _read_zipped_shapefile(path):
     extract = tempfile.mkdtemp()
     try:
-        with zipfile.ZipFile(path, "r") as z:
-            z.extractall(extract)
+        try:
+            with zipfile.ZipFile(path, "r") as z:
+                z.extractall(extract)
+        except zipfile.BadZipFile:
+            raise VectorFileError("Ce fichier n'est pas un ZIP valide.") from None
 
-        shp = [f for f in os.listdir(extract) if f.endswith(".shp")][0]
-        shp_path = os.path.join(extract, shp)
+        shp_path = _find_shapefile(extract)
+        try:
+            with shapefile.Reader(shp_path) as sf:
+                fields = [f[0] for f in sf.fields if f[0] != "DeletionFlag"]
+                shapes = sf.shapes()
+                records = sf.records()
+        except shapefile.ShapefileException as e:
+            raise VectorFileError(
+                f"Shapefile « {os.path.basename(shp_path)} » illisible : il manque "
+                "probablement le .shx ou le .dbf dans le ZIP.") from e
 
-        with shapefile.Reader(shp_path) as sf:
-            fields = [f[0] for f in sf.fields if f[0] != "DeletionFlag"]
-            shapes = sf.shapes()
-            records = sf.records()
-
-        transformer = _to_wgs84(shp_path.replace(".shp", ".prj"))
+        transformer = _to_wgs84(_sibling(shp_path, ".prj"))
         features = []
         for shp_rec, rec in zip(shapes, records):
             geom = shape(shp_rec.__geo_interface__)
@@ -70,6 +85,38 @@ def _read_zipped_shapefile(path):
         return features
     finally:
         shutil.rmtree(extract, ignore_errors=True)
+
+
+def _find_shapefile(folder):
+    """Le .shp du ZIP, à la racine ou dans un sous-dossier (ZIP d'un dossier), quelle que soit
+    la casse de l'extension. Erreur explicite s'il n'y en a aucun ou plusieurs."""
+    found, others = [], []
+    for root, dirs, files in os.walk(folder):
+        dirs[:] = [d for d in dirs if d != "__MACOSX"]
+        for f in files:
+            rel = os.path.relpath(os.path.join(root, f), folder)
+            (found if f.lower().endswith(".shp") else others).append(rel)
+    if not found:
+        listed = ", ".join(sorted(others)[:8]) + (" …" if len(others) > 8 else "")
+        raise VectorFileError(
+            "Aucun fichier .shp dans le ZIP"
+            + (f" (contenu : {listed})" if listed else " (ZIP vide)")
+            + ". Le ZIP doit contenir un shapefile : .shp, .shx, .dbf et .prj de la même couche.")
+    if len(found) > 1:
+        raise VectorFileError(
+            f"Le ZIP contient plusieurs couches ({', '.join(sorted(found))}). "
+            "Garde une seule couche par ZIP.")
+    return os.path.join(folder, found[0])
+
+
+def _sibling(shp_path, ext):
+    """Fichier de même nom que le .shp avec l'extension ext, quelle que soit sa casse."""
+    stem = os.path.splitext(os.path.basename(shp_path))[0]
+    folder = os.path.dirname(shp_path)
+    for f in os.listdir(folder):
+        if os.path.splitext(f)[0] == stem and f.lower().endswith(ext):
+            return os.path.join(folder, f)
+    return os.path.join(folder, stem + ext)
 
 
 def _to_wgs84(prj_path):

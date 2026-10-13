@@ -15,7 +15,8 @@ import streamlit as st
 from ndvi_app.core.geometry import looks_like_wgs84, prepare_all, region_geojson
 from ndvi_app.core.quality import unique_ids
 from ndvi_app.core.session_format import read_session_zip
-from ndvi_app.core.vector_io import load_vector_from_bytes
+from ndvi_app.core.vector_io import VectorFileError, load_vector_from_bytes
+from ndvi_app.logs import log
 from ndvi_app.ui import state
 from ndvi_app.ui.context import Parcels, Settings
 
@@ -110,7 +111,17 @@ def load_project(settings: Settings) -> Project:
         state.clear_results()
         st.session_state["loaded_file"] = file_hash
 
-    features = load_vector(vec_bytes, vec_name)
+    try:
+        features = load_vector(vec_bytes, vec_name)
+    except VectorFileError as e:
+        project.messages.append(("error", str(e)))
+        return project
+    except Exception as e:  # fichier inattendu : message lisible plutôt qu'un arrêt de l'appli
+        log(f"Lecture du fichier de parcelles {vec_name} : {type(e).__name__}: {e}")
+        project.messages.append(("error", f"Fichier « {vec_name} » illisible ({type(e).__name__}). "
+                                          "Dépose un ZIP de shapefile (.shp, .shx, .dbf, .prj) "
+                                          "ou un GeoJSON."))
+        return project
     if not features:
         project.messages.append(("error", "Aucune parcelle trouvée dans le fichier."))
         return project
