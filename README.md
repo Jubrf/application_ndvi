@@ -3,6 +3,22 @@
 Application Streamlit + Google Earth Engine pour suivre la couverture des sols
 à la parcelle à partir du NDVI Sentinel-2.
 
+## Interface (v4.0)
+
+Menu en haut de page, barre latérale de réglages commune à toutes les pages :
+- **Projet** : fichier de parcelles ou analyse enregistrée, période, recherche et choix des
+  dates, lancement ou complément de l'analyse ;
+- **Vue d'ensemble** : chiffres clés, filtres et tableau de toutes les parcelles, avec la barre
+  d'évolution des phases et la mini-courbe NDVI, les valeurs NDVI par date ou la synthèse
+  détaillée ; un clic sur une ligne ouvre la fiche ;
+- **Fiche parcelle** : courbe NDVI, NDTI, vignette satellite et mesures d'une parcelle ;
+- **Carte** : carte des phases à une date, exports KML et HTML ;
+- **Une date** : analyse ponctuelle à une date.
+
+Le bandeau en haut de chaque page rappelle le fichier, la période et les dates analysées,
+indique si l'analyse est enregistrée, et porte les boutons « Exporter » (Excel) et
+« Enregistrer » (.zip).
+
 ## Méthode de calcul (par parcelle et par date)
 
 1. **Images** : Sentinel-2 L2A, réflectance de surface (`COPERNICUS/S2_SR_HARMONIZED`).
@@ -49,17 +65,17 @@ terrain (sol nu / cannes de maïs / chaumes) n'est pas fait.
 
 ## Enregistrer / rouvrir une analyse (ndvi_app/core/session_format.py)
 
-Bouton « Enregistrer l'analyse » de l'onglet temporel : fichier .zip contenant
+Bouton « Enregistrer » du bandeau : fichier .zip contenant
 `session.json` (réglages, période, résultats bruts de chaque date) et
 `parcelles.geojson` (contours + identifiant, réutilisable comme fichier de parcelles).
-« Ouvrir une analyse enregistrée » en haut de page restaure réglages et résultats
+« Ouvrir une analyse enregistrée » (page Projet) restaure réglages et résultats
 sans requête Earth Engine. Supprimer une analyse = supprimer le fichier.
 
 **Compléter une analyse enregistrée (v3.1)** : après l'avoir rouverte, choisir un mois de
 début plus tôt et/ou un mois de fin plus tard, puis « Rechercher les dates disponibles ».
 Seules les dates pas encore analysées sont proposées, avec le filtre de ciel clair, et une frise
 montre ce qui est déjà analysé et ce qui manque. « Compléter l'analyse » ne calcule que ces
-dates, puis « Enregistrer l'analyse » enregistre la version complétée. Le buffer et le masque
+dates, après confirmation, puis « Enregistrer » enregistre la version complétée. Le buffer et le masque
 nuages sont verrouillés sur ceux de l'analyse ouverte, pour que toutes les dates soient
 calculées de la même façon.
 
@@ -72,3 +88,4 @@ Earth Engine (`ndvi_app/earth_engine`), exports (`ndvi_app/exports`) et interfac
 
 Secrets Streamlit requis : `GEE_SERVICE_ACCOUNT`, `GEE_PRIVATE_KEY`.
 Après une mise à jour du code : « Reboot app » dans Streamlit Cloud.
+Streamlit 1.65 ou plus récent ; thème dans `.streamlit/config.toml`.

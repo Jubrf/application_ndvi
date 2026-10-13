@@ -1,6 +1,8 @@
 """Mise en forme des valeurs et des dates affichées."""
 import pandas as pd
 
+from ndvi_app.core.completion import image_covers
+
 
 def fmt(v, digits=3, suffix=""):
     """Nombre arrondi en texte, « — » si absent ou non numérique."""
@@ -20,7 +22,7 @@ def fr_decimal(v):
 # ------------------------------------------------------------------ dates d'images
 def covers(d):
     """L'image (entrée de list_dates) couvre-t-elle au moins une partie des parcelles ?"""
-    return bool(d.get("cover_pct")) and d.get("clear_pct") is not None
+    return image_covers(d)
 
 
 def usable(d, threshold):

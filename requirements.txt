@@ -1,4 +1,4 @@
-streamlit>=1.40
+streamlit>=1.65
 earthengine-api>=1.0
 shapely>=2.0
 pandas

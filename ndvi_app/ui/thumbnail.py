@@ -7,11 +7,12 @@ from ndvi_app.earth_engine import sentinel2 as gee
 from ndvi_app.ui.context import Context
 
 
-def satellite_view(ctx: Context, pid, date_str, key):
+def satellite_view(ctx: Context, pid, date_str, key, stacked=False):
     """Case « pixels masqués » et bouton ; l'image reste affichée tant que la parcelle,
-    la date et les paramètres de calcul ne changent pas."""
+    la date et les paramètres de calcul ne changent pas.
+    stacked : réglages au-dessus de l'image (colonne étroite) au lieu de côte à côte."""
     p, params_t = ctx.parcels, ctx.settings.params_t
-    c1, c2 = st.columns([1, 2])
+    c1, c2 = (st.container(), st.container()) if stacked else st.columns([1, 2])
     with c1:
         show_mask = st.checkbox("Pixels masqués en magenta", value=True, key=f"{key}_mask",
                                 help="Nuages, ombres, cirrus et marge autour des nuages, "
@@ -30,7 +31,7 @@ def satellite_view(ctx: Context, pid, date_str, key):
             except Exception as e:
                 st.error(f"Erreur Earth Engine (image) : {type(e).__name__} — {e}")
                 return
-        st.image(url, width=480)
+        st.image(url, width="stretch" if stacked else 480)
         st.caption(f"Sentinel-2 du {pd.Timestamp(date_str):%d/%m/%Y}, couleurs naturelles · "
                    "contour blanc : parcelle · contour jaune : zone analysée (après buffer)"
                    + (" · magenta : pixels masqués" if show_mask else "")

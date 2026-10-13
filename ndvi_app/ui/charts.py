@@ -269,3 +269,46 @@ def coverage_timeline(done_dates, new_items, selected, period_start, period_end,
                   .encode(x=x_enc, y=y_enc, color=color, tooltip=tooltip))
     return (alt.layer(*layers).properties(height=height)
             .configure_axisY(minExtent=90).configure_view(stroke=None))
+
+
+# ------------------------------------------------------------------ vue d'ensemble
+STRIP_W, STRIP_H = 320, 30   # proportions d'une cellule de tableau (image ajustée sans recadrage)
+STRIP_BAR = 16               # hauteur de la barre, centrée
+STRIP_EMPTY = "#E6E7EB"      # pas de courbe (avant la 1re / après la dernière mesure retenue)
+
+
+def phase_strip_uri(curve, period_start, period_end):
+    """
+    Frise des phases d'une parcelle sur la période, en image SVG (data URI) pour une colonne
+    d'image de st.dataframe. curve : lignes de la courbe lissée d'une parcelle
+    (Date, Phase, Incertain). Teinte atténuée là où la courbe est interpolée loin des mesures.
+    """
+    import base64
+    p0, p1 = pd.Timestamp(period_start), pd.Timestamp(period_end)
+    span = max((p1 - p0).days + 1, 1)
+    rects, y0 = [], (STRIP_H - STRIP_BAR) // 2
+    if not curve.empty:
+        c = curve.sort_values("Date")
+        dates, phases, unc = list(c["Date"]), list(c["Phase"]), list(c["Incertain"])
+        start = 0
+        for i in range(1, len(c) + 1):
+            if i == len(c) or phases[i] != phases[start] or bool(unc[i]) != bool(unc[start]):
+                x0 = (dates[start] - p0).days / span * STRIP_W
+                x1 = ((dates[i - 1] - p0).days + 1) / span * STRIP_W
+                op = 0.45 if unc[start] else 1
+                rects.append(f'<rect x="{x0:.1f}" y="{y0}" width="{max(x1 - x0, 0.6):.1f}" '
+                             f'height="{STRIP_BAR}" fill="{PHASE_TINTS.get(phases[start], STRIP_EMPTY)}" '
+                             f'fill-opacity="{op}"/>')
+                start = i
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{STRIP_W}" height="{STRIP_H}" '
+           f'viewBox="0 0 {STRIP_W} {STRIP_H}"><rect y="{y0}" width="{STRIP_W}" height="{STRIP_BAR}" '
+           f'fill="{STRIP_EMPTY}"/>{"".join(rects)}</svg>')
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
+
+def sparkline_values(curve, step_days=7):
+    """Valeurs de la courbe lissée tous les `step_days` jours (colonne de mini-courbes)."""
+    if curve.empty:
+        return []
+    c = curve.sort_values("Date")
+    return [round(float(v), 3) for v in c["NDVI_lisse"].iloc[::step_days]]

@@ -9,8 +9,10 @@ Clés utilisées :
   opened_session   empreinte de l'analyse enregistrée ouverte
   session_lock     paramètres de calcul de l'analyse enregistrée ouverte (verrouillés)
   os_*             onglet « Analyse à une date » (os_raw : résultat GEE, os_ctx, os_geoinfo)
-  mt_*             onglet « Analyse temporelle » (mt_raw : [(date, résultat GEE)], mt_period,
-                   mt_ctx, mt_geoinfo, mt_errors, choix d'affichage)
+  mt_*             analyse temporelle (mt_raw : [(date, résultat GEE)], mt_period, mt_ctx,
+                   mt_geoinfo, mt_errors, mt_token : jeton de cache, mt_dirty : non enregistrée)
+                   et choix d'affichage des pages de résultats
+  proj_*           fichier du projet (conservé d'une page à l'autre)
 """
 import streamlit as st
 
@@ -68,9 +70,10 @@ def clear_results():
         del st.session_state[key]
 
 
-def restore_payload(session):
+def restore_payload(session, token=None):
     """Réglages et résultats d'une analyse enregistrée (core.session_format.read_session_zip),
-    sous forme de clés de session à appliquer au passage suivant."""
+    sous forme de clés de session à appliquer au passage suivant.
+    token : jeton des résultats (empreinte du fichier), clé du cache d'interprétation."""
     cfg = session["settings"]
     p0, p1 = session["period"]
     payload = {
@@ -84,6 +87,7 @@ def restore_payload(session):
         "mt_ctx": {"geoms_key": session["geoms_key"],
                    "params_t": tuple(sorted(session["params"].items()))},
         "mt_errors": session.get("errors", []),
+        "mt_token": token, "mt_dirty": False,
     }
     payload["session_lock"] = {k: payload[k] for k in CALC_SETTING_KEYS}
     return payload

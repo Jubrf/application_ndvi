@@ -1,0 +1,4 @@
+# Thème de l'application (couleur principale : vert, couleurs des phases inchangées)
+[theme]
+base = "light"
+primaryColor = "#1A7F4B"

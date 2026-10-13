@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="40" viewBox="0 0 240 40">
+  <g fill="none" stroke="#1A7F4B" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 32c0-13 8-21 23-23-1.6 15-9.6 23-23 23z"/>
+    <path d="M8 32l11-11"/>
+  </g>
+  <text x="42" y="27" font-family="'Source Sans Pro','Source Sans 3',sans-serif" font-size="20" font-weight="700" fill="#0F5C35">NDVI parcellaire</text>
+</svg>

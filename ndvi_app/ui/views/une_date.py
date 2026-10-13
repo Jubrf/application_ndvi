@@ -1,4 +1,4 @@
-"""Onglet « Analyse à une date » : choix d'une image, tableau, carte, vignette."""
+"""Page « Analyse à une date » : choix d'une image, tableau, carte, vignette."""
 import datetime
 
 import pandas as pd
@@ -15,8 +15,13 @@ from ndvi_app.ui.state import stale_warning
 from ndvi_app.ui.thumbnail import satellite_view
 
 
-def render(ctx: Context):
-    st.header("Analyse NDVI — une date")
+def render(app):
+    st.title("Analyse à une date")
+    ctx = app.ctx
+    if ctx is None:
+        st.info("Charge d'abord des parcelles dans la page Projet.")
+        st.page_link(app.pages["projet"], label="Aller à Projet", icon=":material/folder_open:")
+        return
     target = _pick_date(ctx)
     if target is not None:
         with st.spinner(f"Calcul des statistiques du {target['date']:%d/%m/%Y}…"):
@@ -37,10 +42,11 @@ def _pick_date(ctx: Context):
     today = datetime.date.today()
     c1, c2 = st.columns(2)
     with c1:
-        year = st.selectbox("Année", list(range(today.year, FIRST_YEAR - 1, -1)), key="os_year")
+        year = st.selectbox("Année", list(range(today.year, FIRST_YEAR - 1, -1)), key="os_year",
+                            persist_state="session")
     with c2:
         month = st.selectbox("Mois", range(1, 13), index=today.month - 1, key="os_month",
-                             format_func=lambda m: MONTHS_FR[m - 1])
+                             format_func=lambda m: MONTHS_FR[m - 1], persist_state="session")
     start = datetime.date(year, month, 1)
     end = min((datetime.date(year + 1, 1, 1) if month == 12
                else datetime.date(year, month + 1, 1)) - datetime.timedelta(days=1), today)
@@ -74,7 +80,8 @@ def _pick_date(ctx: Context):
     default = next((i for i, d in enumerate(dates) if usable(d, min_clear)),
                    next((i for i, d in enumerate(dates) if covers(d)), 0))
     choice = st.selectbox("Date à analyser", dates, index=default,
-                          format_func=lambda d: date_label(d, min_clear), key=f"os_sel_{start}")
+                          format_func=lambda d: date_label(d, min_clear), key=f"os_sel_{start}",
+                          persist_state="session")
     if st.button("Analyser cette date", key="os_btn_load"):
         return choice
     return None
@@ -104,7 +111,8 @@ def _results(ctx: Context):
               export={"title": f"NDVI au {day:%d/%m/%Y}", "file": f"ndvi_{date_str}"})
 
     with st.expander("🛰️ Image satellite d'une parcelle à cette date"):
-        pid_os = st.selectbox("Parcelle", list(df_os["ID"]), key="os_thumb_pid")
+        pid_os = st.selectbox("Parcelle", list(df_os["ID"]), key="os_thumb_pid",
+                              persist_state="session")
         satellite_view(ctx, pid_os, date_str, key="os_thumb")
 
 
