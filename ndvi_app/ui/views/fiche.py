@@ -120,6 +120,7 @@ def _fiche(ctx, res):
                 r_sel = st.selectbox("Date", opts, index=kept_idx[-1] if kept_idx else len(opts) - 1,
                                      format_func=_lab, key=f"mt_thumb_date_{pid}")
                 satellite_view(ctx, pid, r_sel.Date.strftime("%Y-%m-%d"), key="mt_thumb", stacked=True)
+        _reading_help(s, s_row, d_pid)
         with st.expander(f"Mesures de la parcelle ({int(s_row['Mesures_retenues'])} retenues)"):
             d_view = pick(d_pid.assign(Date=d_pid["Date"].dt.date), DETAIL_COLS)
             st.dataframe(d_view, hide_index=True, column_config=column_config(d_view, ctx.column_help))
@@ -144,3 +145,61 @@ def _weather_panel(ctx, res):
             if st.button("Actualiser la météo", icon=":material/refresh:", key="fp_wx_refresh"):
                 weather.refresh(ctx)
                 st.rerun(scope="app")
+
+
+def _current_case(s_row, d_pid):
+    """Ligne de l'aide à la lecture correspondant à la dernière mesure retenue."""
+    kept = d_pid[d_pid["Retenue"] == "Oui"]
+    if kept.empty:
+        return None, None
+    last = kept.sort_values("Date").iloc[-1]
+    lecture = last.get("Lecture", soil.NONE)
+    case = {soil.LEVEE: "levee", soil.INDET_HUMIDE: "humide", soil.INDET_VERIF: "humide",
+            soil.RESIDUS: "residus", soil.SOL_NU: "solnu", soil.INDET: "indet"}.get(lecture)
+    if case is None and lecture == soil.NONE:
+        case = "couvert"
+    return case, last
+
+
+def _reading_help(s, s_row, d_pid):
+    """Aide à la lecture : règle simplifiée, cas de la parcelle (dernière mesure) surligné."""
+    low = fr_decimal(s.low)
+    case, last = _current_case(s_row, d_pid)
+
+    def line(key, text, indent=False):
+        txt = f":green-background[{text}] :material/arrow_back:" if key == case else text
+        return ("  - " if indent else "- ") + txt
+
+    lines = [
+        line("couvert", f"NDVI ≥ {low} → **couvert ou culture présent** (maïs jaunissant compris)"),
+        f"- NDVI < {low} :",
+        line("levee", f"en hausse (+ {fr_decimal(soil.RISE_MIN)} en {soil.RISE_DAYS} j) → "
+                      "**levée possible**", True),
+        line("humide", "sol humide ¹ → **indéterminé**, NDTI non lisible", True),
+        line("residus", f"sol sec, NDTI ≥ {fr_decimal(soil.NDTI_RESIDUE)} → **résidus probables** "
+                        "(chaumes, cannes)", True),
+        line("solnu", f"sol sec, NDTI ≤ {fr_decimal(soil.NDTI_BARE)} → **sol nu probable**", True),
+        line("indet", "sol sec, NDTI entre les deux → **indéterminé** (mélange, résidus en "
+                      "partie enfouis)", True),
+    ]
+    with st.container(border=True):
+        st.subheader("Aide à la lecture")
+        st.markdown("\n".join(lines))
+        if last is not None:
+            parts = [f"NDVI {fr_decimal(last['NDVI'], 3)}"]
+            for col, lab, n, unit in (("NDTI", "NDTI", 3, ""), ("SWIR1_median", "B11", 3, ""),
+                                      ("Pluie_3j_mm", "pluie 3 j", 1, " mm")):
+                v = last.get(col)
+                if v is not None and pd.notna(v):
+                    parts.append(f"{lab} {fr_decimal(v, n)}{unit}")
+            state = last.get("Etat_sol", soil.NONE)
+            if isinstance(state, str) and state != soil.NONE:
+                parts.append(f"sol {state.lower()}")
+            st.caption(f"Cette parcelle à sa dernière mesure retenue ({last['Date']:%d/%m/%Y}) : "
+                       + " · ".join(parts) + ".")
+        st.caption(
+            f"¹ Sol humide : B11 < {fr_decimal(soil.SWIR1_WET)}, ou pluie des 3 jours ≥ "
+            f"{fr_decimal(soil.RAIN_WET, 0)} mm, de la veille ≥ {fr_decimal(soil.RAIN_EVE, 0)} mm, "
+            f"humidité du sol ≥ {fr_decimal(soil.SM_WET)}. Sol sec : B11 ≥ "
+            f"{fr_decimal(soil.SWIR1_WET)} sans pluie récente. Baisse rapide « (gel) » : couvert "
+            "gelé plutôt que détruit. Repères indicatifs, à calibrer sur le terrain.")
