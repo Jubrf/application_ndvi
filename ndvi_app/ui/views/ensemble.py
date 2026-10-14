@@ -100,6 +100,7 @@ def _evolution_table(shown, res, settings, key):
             "ID": r["ID"], "Surface_ha": r["Surface_ha"],
             "Evolution": phase_evolution_uri(c, res.p_start, res.p_end, settings.low, settings.high),
             "NDVI_fin": r["NDVI_fin"], "Phase_fin": r["Phase_fin"] if pd.notna(r["Phase_fin"]) else NO_PHASE,
+            "Lecture_fin": r.get("Lecture_fin", "—"),
             "Confiance": r["Confiance"], "Baisses_rapides": r["Baisses_rapides"],
         })
     df = pd.DataFrame(rows)
@@ -117,6 +118,11 @@ def _evolution_table(shown, res, settings, key):
                  "de chaque mois, même échelle de temps pour toutes les parcelles."),
         "NDVI_fin": st.column_config.NumberColumn("NDVI fin", format="%.2f"),
         "Phase_fin": st.column_config.TextColumn("Phase fin", width="medium"),
+        "Lecture_fin": st.column_config.TextColumn(
+            "Lecture fin", width="large",
+            help="Parcelle peu verte à la dernière mesure : levée possible, résidus probables, "
+                 "sol nu probable ou indéterminé, d'après le NDVI, le NDTI, l'état du sol et la "
+                 "météo. Aide à la décision, à confirmer sur le terrain. — : parcelle verte."),
         "Confiance": st.column_config.TextColumn("Confiance"),
         "Baisses_rapides": st.column_config.TextColumn("Baisse rapide", width="medium"),
     }

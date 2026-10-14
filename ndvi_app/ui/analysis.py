@@ -13,6 +13,7 @@ import streamlit as st
 
 from ndvi_app.core.quality import build_rows
 from ndvi_app.core.timeseries import analyse_all
+from ndvi_app.ui import weather
 
 
 @dataclass
@@ -47,13 +48,15 @@ def settings_key(settings):
 
 
 @st.cache_data(max_entries=8, show_spinner="Interprétation des mesures…")
-def _interpret(token, ids, skey, p_start, p_end, _geoinfo, _raws):
+def _interpret(token, ids, skey, p_start, p_end, wkey, _geoinfo, _raws, _wdays):
     min_pixels, min_clear, low, high, ts_items = skey
     rows = []
     for date_str, raw in _raws:
-        rows += build_rows(list(ids), _geoinfo, raw, date_str, min_pixels, min_clear, low, high)
+        rows += build_rows(list(ids), _geoinfo, raw, date_str, min_pixels, min_clear, low, high,
+                           weather_days=_wdays)
     df_long = pd.DataFrame(rows)
-    synthese, detail, courbes = analyse_all(df_long, p_start, p_end, low, high, dict(ts_items))
+    synthese, detail, courbes = analyse_all(df_long, p_start, p_end, low, high, dict(ts_items),
+                                            weather_days=_wdays)
     return df_long, synthese, detail, courbes
 
 
@@ -67,7 +70,7 @@ def results(ctx):
     p_start, p_end = ss.mt_period
     df_long, synthese, detail, courbes = _interpret(
         ss.mt_token, tuple(ctx.parcels.ids), settings_key(ctx.settings), p_start, p_end,
-        ss.mt_geoinfo, ss.mt_raw)
+        weather.key(), ss.mt_geoinfo, ss.mt_raw, weather.days())
     return TemporalResults(df_long, synthese, detail, courbes, p_start, p_end)
 
 

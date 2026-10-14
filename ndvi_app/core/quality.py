@@ -5,11 +5,10 @@ L'analyse temporelle est dans ndvi_app/core/timeseries.py.
 """
 from ndvi_app.config import (COLOR_INVALID, COLOR_MAP, DEFAULT_THRESHOLDS, PHASE_NU,
                              STATUS_CLOUD, STATUS_FEW, STATUS_NODATA, STATUS_NOGEOM, STATUS_OK)
+from ndvi_app.core import soil_reading as soil
 from ndvi_app.core.timeseries import phase_of
 
-# Réflectance B11 sous laquelle un sol peu couvert est signalé « humide probable »
-# (valeur indicative, à confirmer sur le terrain) : l'humidité réduit le contraste NDTI.
-SWIR1_WET = 0.15
+SWIR1_WET = soil.SWIR1_WET     # réexporté (ancien emplacement)
 
 
 def colorize(phase):
@@ -91,13 +90,16 @@ def quality_status(parsed, min_pixels, min_clear_pct):
 
 
 def build_rows(ids, geoinfo, day_result, date_str, min_pixels, min_clear_pct,
-               low=DEFAULT_THRESHOLDS[0], high=DEFAULT_THRESHOLDS[1]):
+               low=DEFAULT_THRESHOLDS[0], high=DEFAULT_THRESHOLDS[1], weather_days=None):
     """
-    ids        : identifiants des parcelles (ordre des features)
-    geoinfo    : sortie de geometry.prepare_all
-    day_result : sortie de earth_engine.sentinel2.compute_day_stats
+    ids          : identifiants des parcelles (ordre des features)
+    geoinfo      : sortie de geometry.prepare_all
+    day_result   : sortie de earth_engine.sentinel2.compute_day_stats
+    weather_days : météo journalière (earth_engine.weather.daily_weather()["days"]) ou None
     """
     sats = ", ".join(s.replace("Sentinel-", "S") for s in day_result.get("satellites", []))
+    wx = soil.weather_at(weather_days, date_str)
+    meteo = soil.meteo_class(wx["Pluie_3j_mm"], wx["Humidite_sol"], wx["Pluie_veille_mm"])
     rows = []
     for i, (pid, gi) in enumerate(zip(ids, geoinfo)):
         parsed = parse_stats(day_result["stats"].get(i)) if gi["geojson"] else None
@@ -115,10 +117,9 @@ def build_rows(ids, geoinfo, day_result, date_str, min_pixels, min_clear_pct,
                "Phase": phase if status == STATUS_OK else status,
                "Couvert": "—" if phase is None else ("Non" if phase == PHASE_NU else "Oui"),
                "NDTI": ndti,
-               # Indicatif, à confirmer : infrarouge moyen sombre sur parcelle peu verte
-               "Sol_humide": ("—" if ndti is None or value is None or value >= low
-                              else ("Probable" if swir1 is not None and swir1 < SWIR1_WET
-                                    else "Non"))}
+               # Indicatif, à calibrer : voir core/soil_reading.py
+               "Etat_sol": soil.soil_state(value, low, swir1, meteo) if ndti is not None else "—",
+               **wx, "Gel": soil.frost(wx["Tmin_7j_C"])}
         if parsed:
             row.update(parsed)
         row.update({"Surface_ha": gi["area_ha"], "Buffer_m": gi["buffer_m"],

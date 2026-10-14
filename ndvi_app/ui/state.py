@@ -10,7 +10,8 @@ Clés utilisées :
   session_lock     paramètres de calcul de l'analyse enregistrée ouverte (verrouillés)
   os_*             onglet « Analyse à une date » (os_raw : résultat GEE, os_ctx, os_geoinfo)
   mt_*             analyse temporelle (mt_raw : [(date, résultat GEE)], mt_period, mt_ctx,
-                   mt_geoinfo, mt_errors, mt_token : jeton de cache, mt_dirty : non enregistrée)
+                   mt_geoinfo, mt_errors, mt_token : jeton de cache, mt_dirty : non enregistrée,
+                   mt_weather : météo ERA5-Land de la période, voir ui/weather.py)
                    et choix d'affichage des pages de résultats
   proj_*           fichier du projet (conservé d'une page à l'autre)
 """
@@ -89,6 +90,8 @@ def restore_payload(session, token=None):
         "mt_errors": session.get("errors", []),
         "mt_token": token, "mt_dirty": False,
     }
+    # Météo enregistrée depuis la v4.2 ; None → récupérée à l'ouverture (ui/weather.ensure)
+    payload["mt_weather"] = session.get("weather")
     payload["session_lock"] = {k: payload[k] for k in CALC_SETTING_KEYS}
     return payload
 

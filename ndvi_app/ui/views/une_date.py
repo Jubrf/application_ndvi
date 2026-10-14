@@ -5,9 +5,11 @@ import pandas as pd
 import streamlit as st
 
 from ndvi_app.config import COLOR_INVALID, FIRST_YEAR, MONTHS_FR, STATUS_OK
+from ndvi_app.core import soil_reading as soil
 from ndvi_app.core.quality import build_rows, colorize
 from ndvi_app.exports.excel import XLSX_MIME, to_excel
 from ndvi_app.ui.columns import OS_COLS, TECH_COLS, column_config, pick
+from ndvi_app.ui import weather
 from ndvi_app.ui.context import Context
 from ndvi_app.ui.formatting import covers, date_label, fmt, usable
 from ndvi_app.ui.maps import phase_map
@@ -91,15 +93,24 @@ def _results(ctx: Context):
     s, p = ctx.settings, ctx.parcels
     date_str, raw = st.session_state.os_raw
     stale_warning(st.session_state.os_ctx, ctx.calc_context())
+    day0 = datetime.date.fromisoformat(date_str)
+    wx = weather.fetch(ctx, str(day0 - datetime.timedelta(days=weather.WX_MARGIN_DAYS)), date_str)
     rows = build_rows(p.ids, st.session_state.os_geoinfo, raw, date_str,
-                      s.min_pixels, s.min_clear, s.low, s.high)
+                      s.min_pixels, s.min_clear, s.low, s.high, weather_days=wx.get("days"))
     df_all = pd.DataFrame(rows)
+    # Lecture à une date : sans tendance de la courbe (pas de « Levée possible »)
+    df_all["Lecture"] = [soil.reading(v, s.low, n, e, None) if st_ == STATUS_OK else soil.NONE
+                         for v, n, e, st_ in zip(df_all["NDVI"], df_all["NDTI"],
+                                                 df_all["Etat_sol"], df_all["Statut"])]
     df_os = pick(df_all, OS_COLS)
 
     n_ok = int((df_os["Statut"] == STATUS_OK).sum())
     st.success(f"Résultats du {date_str} — {n_ok}/{len(df_os)} parcelles exploitables")
     st.dataframe(df_os, hide_index=True, column_config=column_config(df_os, ctx.column_help))
-    st.caption("Survole un en-tête de colonne pour sa définition.")
+    st.caption("Survole un en-tête de colonne pour sa définition. Météo : "
+               + ("indisponible, état du sol sur l'infrarouge moyen seul." if not wx.get("days")
+                  else "ERA5-Land (pluie, humidité du sol, gel) de la zone.")
+               + " Pas de « Levée possible » à une date : il faut la tendance de la courbe.")
     st.download_button(
         "⬇️ Exporter (Excel)",
         data=to_excel({"Résultats": df_os, "Technique": pick(df_all, TECH_COLS)}, ctx.column_help),

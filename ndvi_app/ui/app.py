@@ -14,7 +14,7 @@ import streamlit as st
 from ndvi_app.config import APP_VERSION
 from ndvi_app.earth_engine import sentinel2 as gee
 from ndvi_app.logs import log
-from ndvi_app.ui import analysis, banner, state
+from ndvi_app.ui import analysis, banner, state, weather
 from ndvi_app.ui.context import Context
 from ndvi_app.ui.loading import Project, load_project
 from ndvi_app.ui.sidebar import render_sidebar
@@ -86,6 +86,7 @@ def main():
     settings = render_sidebar(locked=state.session_lock() is not None)
     project = load_project(settings)
     ctx = Context(settings=settings, parcels=project.parcels) if project.parcels else None
+    weather.ensure(ctx)             # météo ERA5-Land de l'analyse temporelle (une requête)
     app = AppView(project=project, ctx=ctx)
     app.pages = _pages(app)
 

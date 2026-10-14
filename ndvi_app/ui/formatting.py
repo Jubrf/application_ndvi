@@ -14,9 +14,9 @@ def fmt(v, digits=3, suffix=""):
         return "—"
 
 
-def fr_decimal(v):
-    """Seuil à deux décimales avec virgule (ex. 0,25)."""
-    return f"{v:.2f}".replace(".", ",")
+def fr_decimal(v, n=2):
+    """Seuil à n décimales (deux par défaut) avec virgule (ex. 0,25)."""
+    return f"{v:.{n}f}".replace(".", ",")
 
 
 # ------------------------------------------------------------------ dates d'images

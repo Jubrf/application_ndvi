@@ -2,7 +2,9 @@
 Enregistrement / réouverture d'une analyse temporelle (sans recalcul Earth Engine).
 
 Fichier .zip contenant :
-  session.json      : réglages, période, géométries d'analyse, résultats bruts par date
+  session.json      : réglages, période, géométries d'analyse, résultats bruts par date,
+                      météo journalière ERA5-Land (clé « weather », depuis la v4.2 ; absente
+                      des fichiers plus anciens, récupérée alors à la réouverture)
   parcelles.geojson : contours des parcelles (WGS84) avec leur identifiant (propriété ID),
                       réutilisable aussi comme fichier de parcelles pour une nouvelle analyse
 """
@@ -22,7 +24,7 @@ FORMAT_VERSION = 1
 def build_session_zip(meta, features, ids, geoinfo, raws):
     """
     meta     : dict (app_version, source_file, file_hash, id_field, settings, params,
-               geoms_key, period [date, date], errors)
+               geoms_key, period [date, date], errors, weather facultatif)
     features : parcelles chargées (géométries shapely WGS84)
     ids      : identifiants (même ordre)
     geoinfo  : sortie de geometry.prepare_all au moment du calcul

@@ -3,13 +3,16 @@ import pandas as pd
 import streamlit as st
 
 from ndvi_app.config import PHASE_BIEN, PHASE_NU, PHASE_PEU
-from ndvi_app.ui.charts import ndti_chart, parcel_chart
+from ndvi_app.core import soil_reading as soil
+from ndvi_app.ui import weather
+from ndvi_app.ui.charts import ndti_chart, parcel_chart, weather_charts
 from ndvi_app.ui.columns import DETAIL_COLS, column_config, pick
 from ndvi_app.ui.formatting import fmt, fr_decimal
 from ndvi_app.ui.thumbnail import satellite_view
 
 NO_IMAGE_STATUSES = ["Hors image", "Géométrie inexploitable"]
 PHASE_BADGE = {PHASE_NU: "red", PHASE_PEU: "orange", PHASE_BIEN: "green"}
+READING_BADGE = {soil.LEVEE: "green", soil.RESIDUS: "violet", soil.SOL_NU: "red"}
 
 
 def render(app):
@@ -59,6 +62,12 @@ def _fiche(ctx, res):
             st.badge(f"{phase_fin} en fin de période", color=PHASE_BADGE.get(phase_fin, "gray"))
         else:
             st.badge("Aucune courbe", color="gray")
+        lecture = s_row.get("Lecture_fin", soil.NONE)
+        if isinstance(lecture, str) and lecture != soil.NONE:
+            st.badge(lecture, color=READING_BADGE.get(lecture, "gray"),
+                     icon=":material/psychology_alt:",
+                     help="Lecture à la dernière mesure retenue (NDVI, NDTI, état du sol et "
+                          "météo) : aide à la décision, à confirmer sur le terrain.")
         st.badge(f"Confiance {str(s_row['Confiance']).lower()}", color="blue")
         st.caption(f"{fmt(s_row['Surface_ha'], 2).replace('.', ',')} ha")
 
@@ -84,13 +93,15 @@ def _fiche(ctx, res):
             st.caption("● mesure retenue · ○ mesure écartée (survol : motif) · trait plein : courbe "
                        "lissée · pointillé : interpolation à plus de 15 jours de toute mesure · "
                        "lignes tiretées : seuils.")
+            _weather_panel(ctx, res)
             nd_chart = ndti_chart(d_pid, res.p_start, res.p_end, s.low)
             if nd_chart is not None:
                 with st.expander("NDTI — résidus de culture (expérimental)"):
                     st.altair_chart(nd_chart, width="stretch")
                     st.caption("Points pleins quand la parcelle est peu verte "
                                f"(NDVI < {fr_decimal(s.low)}), seuls interprétables ; cercle "
-                               "orange : sol humide probable (NDTI peu fiable).")
+                               "orange : sol humide ou à vérifier (NDTI non lu). Survol : état "
+                               "du sol et lecture. Lignes : repères indicatifs, à calibrer.")
     with right:
         with st.container(border=True):
             st.subheader("Image satellite")
@@ -112,3 +123,24 @@ def _fiche(ctx, res):
         with st.expander(f"Mesures de la parcelle ({int(s_row['Mesures_retenues'])} retenues)"):
             d_view = pick(d_pid.assign(Date=d_pid["Date"].dt.date), DETAIL_COLS)
             st.dataframe(d_view, hide_index=True, column_config=column_config(d_view, ctx.column_help))
+
+
+def _weather_panel(ctx, res):
+    """Météo ERA5-Land de la période sous la courbe NDVI (même axe des dates)."""
+    st_ = weather.status(res.p_end)
+    charts = weather_charts(weather.days(), res.p_start, res.p_end)
+    # Directement sous la courbe NDVI (pas dans un volet) : même largeur, dates alignées
+    st.markdown("**Météo** · pluie, gel, humidité du sol (ERA5-Land)")
+    if True:
+        for chart in charts:
+            st.altair_chart(chart, width="stretch")
+        if charts:
+            st.caption("Barres : pluie du jour · ▼ : gel (température minimale ≤ "
+                       f"{fr_decimal(soil.FROST_C, 0)} °C) · courbe : humidité du sol 0–7 cm, "
+                       f"repères {fr_decimal(soil.SM_DRY)} (ressuyé) et {fr_decimal(soil.SM_WET)} "
+                       "(proche saturation). Une valeur pour toute la zone (maille ≈ 11 km).")
+        if st_ is not None and st_[0] != "ok":
+            st.caption(st_[1])
+            if st.button("Actualiser la météo", icon=":material/refresh:", key="fp_wx_refresh"):
+                weather.refresh(ctx)
+                st.rerun(scope="app")

@@ -28,11 +28,13 @@ ndvi_app/
     geometry.py             buffer intérieur adaptatif, zone de calcul, contours
     quality.py              statistiques brutes → mesure : statut, poids de fiabilité, phase
     timeseries.py           analyse temporelle : sélection, lissage, phases, synthèse
+    soil_reading.py         état du sol (météo + B11), gel, lecture NDVI/NDTI (v4.2)
     session_format.py       format du fichier .zip « analyse enregistrée »
     completion.py           compléter une analyse : dates à ajouter, fusion des résultats
   earth_engine/
     sentinel2.py            collections, masque nuages, dates disponibles,
                             statistiques zonales, vignettes (avec cache Streamlit)
+    weather.py              météo journalière ERA5-Land (une requête par période)
   exports/
     excel.py                classeur Excel + onglet Lexique
     excel_charts.py         graphiques Excel natifs par parcelle
@@ -43,6 +45,7 @@ ndvi_app/
     state.py                clés de st.session_state, valeurs par défaut, restauration
     context.py              Settings (réglages), Parcels (parcelles), Context (les deux)
     sidebar.py              barre latérale (Interprétation, Calcul) → Settings
+    weather.py              météo ERA5-Land de l'analyse en session (récupération, état)
     loading.py              fichier de parcelles ou analyse enregistrée → Project, sans widget
     analysis.py             analyse temporelle en session, interprétation mise en cache
     banner.py               bandeau du projet : état, Exporter (Excel), Enregistrer (.zip)
@@ -85,7 +88,7 @@ Streamlit réexécute tout le script à chaque interaction.
 |---|---|---|
 | Projet | `/projet` | source, fichier, identifiant, étapes, période et dates à analyser |
 | Vue d'ensemble | `/vue-ensemble` | 5 chiffres clés, filtres (phase, confiance, recherche), présentations « Évolution des phases » (courbe NDVI au-dessus de la barre des phases, même échelle de temps, mois repérés), « Valeurs NDVI par date », « Synthèse détaillée » ; un clic sur une ligne ouvre la fiche |
-| Fiche parcelle | `/fiche-parcelle` | parcelle précédente / suivante parmi celles filtrées, courbe NDVI, NDTI, vignette, mesures |
+| Fiche parcelle | `/fiche-parcelle` | parcelle précédente / suivante parmi celles filtrées, courbe NDVI, météo, NDTI, lecture, vignette, mesures |
 | Carte | `/carte` | carte des phases à une date choisie sur la frise, exports KML / HTML |
 | Une date | `/une-date` | analyse ponctuelle, inchangée |
 
@@ -110,19 +113,21 @@ et un changement de paramètre de calcul est signalé (`state.stale_warning`).
 ```
 fichier → core.vector_io → core.geometry.prepare_all (buffer)
         → earth_engine.sentinel2.compute_day_stats  (1 requête GEE pour toutes les parcelles)
-        → core.quality.build_rows                   (statut, poids, phase par parcelle)
-        → core.timeseries.analyse_all               (onglet temporel : courbes et synthèse)
+        → core.quality.build_rows                   (statut, poids, phase, état du sol)
+        → core.timeseries.analyse_all               (onglet temporel : courbes, lecture, synthèse)
         → ui (tableaux, graphiques, cartes) et exports (Excel, KML, HTML, .zip)
 ```
 
 ## Analyse enregistrée (.zip)
 
 `core/session_format.py`. Le fichier contient :
-- `session.json` : réglages, période et résultats GEE bruts de chaque date ;
+- `session.json` : réglages, période et résultats GEE bruts de chaque date, météo
+  ERA5-Land de la période (clé `weather`, depuis la v4.2 ; absente → récupérée à l'ouverture) ;
 - `parcelles.geojson` : contours et identifiants.
 
 À l'ouverture, `ui/loading.py` programme la restauration (`state.restore_payload`), puis
-relance le script. Aucune requête Earth Engine n'est faite. Le format est versionné
+relance le script. Aucune requête Earth Engine n'est faite pour les images (une seule pour
+la météo si le fichier n'en contient pas). Le format est versionné
 (`FORMAT_VERSION`) : une version plus récente de l'appli doit continuer à lire les anciens
 fichiers.
 
@@ -156,15 +161,34 @@ qualité minimale et la courbe restent réglables. Le format du fichier .zip est
 | Masque nuages, collections, indices calculés | `earth_engine/sentinel2.py` |
 | Statut d'une mesure, poids de fiabilité | `core/quality.py` |
 | Lissage, épisodes, confiance | `core/timeseries.py` |
+| Règle état du sol / lecture, seuils météo et NDTI | `core/soil_reading.py` |
+| Requête météo ERA5-Land | `earth_engine/weather.py` |
 | Colonnes et définitions des tableaux | `ui/columns.py` |
 | Contenu d'une page | `ui/views/*.py` |
 | Période, recherche et sélection des dates | `ui/temporal_setup.py` |
 | Bandeau, fichiers Excel et .zip | `ui/banner.py` |
 | Couleur principale de l'interface | `.streamlit/config.toml` |
 
+## Météo et lecture du sol (v4.2)
+
+- `earth_engine/weather.py` : `daily_weather(start, end, region_key, region_geojson)` →
+  `{"source", "start", "end", "days": {"AAAA-MM-JJ": [pluie_mm, humidite_sol, tmin_c]}}`.
+  Une requête `getRegion` sur la collection ERA5-Land journalière autour du centre de la
+  zone (mailles à moins de 8 km, moyennées), mise en cache 6 h.
+- `ui/weather.py` : `ensure(ctx)` (appelé dans `app.main`) récupère la météo quand une
+  analyse temporelle existe et que la météo manque ou ne couvre pas la période (+ 10 jours
+  avant) : nouvelle analyse, complétion, fichier antérieur à la v4.2. Résultat en session
+  (`mt_weather`), passé à l'interprétation (clé de cache `weather.key()`), enregistré dans
+  le .zip, exporté (onglet « Météo »). Un échec est mémorisé (pas de nouvel essai à chaque
+  passage) ; bouton « Actualiser la météo » sur la fiche.
+- `core/soil_reading.py` : la règle (voir README) ; `build_rows(..., weather_days)` ajoute
+  la météo et l'état du sol de chaque mesure, `analyse_all(..., weather_days)` la lecture
+  (tendance de la courbe), Lecture_fin / Etat_sol_fin et le gel des baisses rapides.
+- Page « Analyse à une date » : même règle, sans « Levée possible » (pas de courbe).
+
 ## Changer de fournisseur d'images (piste)
 
-Seul `earth_engine/sentinel2.py` dépend de Google Earth Engine. Un autre fournisseur
+Seuls `earth_engine/sentinel2.py` et `earth_engine/weather.py` dépendent de Google Earth Engine. Un autre fournisseur
 (openEO, Sentinel Hub, lecture directe des COG) devrait fournir les mêmes fonctions :
 - `list_dates(start, end, region_key, params_t, region_geojson)` → `[{"date", "clear_pct", "cover_pct", "n_images"}]`
 - `compute_day_stats(date_str, geoms_key, params_t, geojsons, region_geojson)` → `{"stats": {idx: {...}}, "satellites": [...]}`

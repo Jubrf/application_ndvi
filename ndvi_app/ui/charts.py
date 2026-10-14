@@ -117,7 +117,10 @@ def parcel_chart(detail, curve, period_start, period_end, low, high,
 
 NDTI_COLOR = "#4a3aa7"      # panneau NDTI : teinte distincte du NDVI
 WET_COLOR = "#eb6834"       # sol humide probable
-NDTI_REF = 0.10             # repère indicatif, à calibrer
+from ndvi_app.core import soil_reading as soil  # noqa: E402
+
+NDTI_REF = soil.NDTI_RESIDUE  # repères indicatifs, à calibrer
+WET_STATES = (soil.ETAT_HUMIDE, soil.ETAT_PROBABLE, soil.ETAT_VERIF)
 AXIS_Y_WIDTH = 44           # largeur fixe de l'axe Y : les deux panneaux restent alignés
 
 
@@ -132,8 +135,8 @@ def ndti_chart(detail, period_start, period_end, low, height=170):
     p0, p1 = pd.Timestamp(period_start), pd.Timestamp(period_end)
     d = detail.dropna(subset=["NDTI"]).copy()
     d["Lisible"] = (d["NDVI"] < low).map({True: "Oui", False: "Non (parcelle verte)"})
-    humid = d["Sol_humide"] if "Sol_humide" in d else pd.Series("—", index=d.index)
-    d["Humide"] = humid.fillna("—")
+    for col in ("Etat_sol", "Lecture"):
+        d[col] = d[col].fillna("—") if col in d else "—"
 
     v = d["NDTI"]
     y_lo = min(-0.05, (v.min() // 0.05) * 0.05)
@@ -144,9 +147,12 @@ def ndti_chart(detail, period_start, period_end, low, height=170):
                alt.Tooltip("NDTI:Q", title="NDTI", format=".3f"),
                alt.Tooltip("NDVI:Q", title="NDVI", format=".3f"),
                alt.Tooltip("Lisible:N", title="Interprétable"),
-               alt.Tooltip("Humide:N", title="Sol humide")]
+               alt.Tooltip("Etat_sol:N", title="État du sol"),
+               alt.Tooltip("Lecture:N", title="Lecture")]
 
-    ref = pd.DataFrame({"y": [NDTI_REF], "x0": [p0], "label": ["0,10 (repère indicatif)"]})
+    ref = pd.DataFrame({"y": [soil.NDTI_RESIDUE, soil.NDTI_BARE], "x0": [p0, p0],
+                        "label": [f"{soil.NDTI_RESIDUE:.2f} résidus".replace(".", ","),
+                                  f"{soil.NDTI_BARE:.2f} sol nu".replace(".", ",")]})
     layers = [
         alt.Chart(ref).mark_rule(strokeDash=[4, 4], strokeWidth=1, color=MUTED).encode(
             y=alt.Y("y:Q", scale=y_scale, title="NDTI")),
@@ -156,7 +162,7 @@ def ndti_chart(detail, period_start, period_end, low, height=170):
     ]
     green = d[d["Lisible"] != "Oui"]
     bare = d[d["Lisible"] == "Oui"]
-    wet = bare[bare["Humide"] == "Probable"]
+    wet = bare[bare["Etat_sol"].isin(WET_STATES)]
     if not green.empty:
         layers.append(alt.Chart(green).mark_point(
             shape="circle", filled=False, size=50, strokeWidth=1.2, color=MUTED).encode(
@@ -170,6 +176,56 @@ def ndti_chart(detail, period_start, period_end, low, height=170):
             size=64, color=NDTI_COLOR, stroke="white", strokeWidth=1.5, opacity=1).encode(
             x=x_enc, y=alt.Y("NDTI:Q", scale=y_scale), tooltip=tooltip))
     return alt.layer(*layers).properties(height=height).configure_axisY(minExtent=AXIS_Y_WIDTH)
+
+
+RAIN_COLOR = "#3b7dd8"      # pluie
+SOIL_COLOR = "#8a5a2b"      # humidité du sol
+FROST_COLOR = "#5bc0eb"     # gel
+
+
+def weather_charts(days, period_start, period_end):
+    """
+    Météo ERA5-Land sous le graphique NDVI, même axe des dates et même largeur d'axe Y
+    (deux graphiques pleine largeur) : pluie journalière (barres) avec repères de gel, puis
+    humidité du sol 0–7 cm et ses repères (ressuyé / proche saturation). [] sans données.
+    """
+    if not days:
+        return []
+    p0, p1 = pd.Timestamp(period_start), pd.Timestamp(period_end)
+    df = pd.DataFrame([{"Date": pd.Timestamp(d), "Pluie": v[0], "Humidite": v[1], "Tmin": v[2]}
+                       for d, v in days.items()])
+    df = df[(df["Date"] >= p0) & (df["Date"] <= p1)]
+    if df.empty:
+        return []
+    x_enc = alt.X("Date:T", scale=alt.Scale(domain=[p0, p1]), axis=_x_axis(p0, p1))
+    x_top = alt.X("Date:T", scale=alt.Scale(domain=[p0, p1]),
+                  axis=alt.Axis(title=None, labels=False, ticks=False, domain=False, grid=False))
+    tooltip = [alt.Tooltip("Date:T", title="Date", format="%d/%m/%Y"),
+               alt.Tooltip("Pluie:Q", title="Pluie (mm)", format=".1f"),
+               alt.Tooltip("Humidite:Q", title="Humidité du sol (m³/m³)", format=".2f"),
+               alt.Tooltip("Tmin:Q", title="Température min. (°C)", format=".1f")]
+    rain_max = max(10.0, float(df["Pluie"].max()))
+    rain = alt.Chart(df).mark_bar(color=RAIN_COLOR, opacity=0.85, width=2).encode(
+        x=x_top, y=alt.Y("Pluie:Q", title="Pluie (mm)", scale=alt.Scale(domain=[0, rain_max])),
+        tooltip=tooltip)
+    frost_df = df[df["Tmin"] <= soil.FROST_C]
+    rain_layers = [rain]
+    if not frost_df.empty:
+        rain_layers.append(alt.Chart(frost_df).mark_point(
+            shape="triangle-down", filled=True, size=45, color=FROST_COLOR).encode(
+            x=x_top, y=alt.value(4), tooltip=tooltip))
+    top = alt.layer(*rain_layers).properties(height=90)
+    refs = pd.DataFrame({"y": [soil.SM_DRY, soil.SM_WET]})
+    sm = alt.layer(
+        alt.Chart(refs).mark_rule(strokeDash=[3, 3], color=MUTED, strokeWidth=1).encode(
+            y=alt.Y("y:Q", scale=alt.Scale(domain=[0.1, 0.5]))),
+        alt.Chart(df).mark_line(color=SOIL_COLOR, strokeWidth=2).encode(
+            x=x_enc, y=alt.Y("Humidite:Q", title="Humidité",
+                             scale=alt.Scale(domain=[0.1, 0.5]), axis=alt.Axis(values=[0.2, 0.3, 0.4])),
+            tooltip=tooltip),
+    ).properties(height=100)
+    # Même largeur d'axe Y que le graphique NDVI : dates alignées d'un graphique à l'autre
+    return [c.configure_axisY(minExtent=AXIS_Y_WIDTH).configure_view(stroke=None) for c in (top, sm)]
 
 
 CURRENT_COLOR = "#e34948"   # date affichée sur la carte

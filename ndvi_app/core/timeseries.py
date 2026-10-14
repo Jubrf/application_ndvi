@@ -14,11 +14,14 @@ Chaîne de traitement d'une parcelle :
      épisodes de moins de N jours fusionnés, baisses rapides repérées.
   4. Synthèse : chronologie en texte, phase en fin de période, plus long trou
      sans mesure, niveau de confiance.
+  5. Lecture des mesures sur parcelle peu verte (levée, résidus, sol nu) selon le NDVI,
+     le NDTI et l'état du sol (météo + infrarouge moyen) : voir core/soil_reading.py.
 """
 import numpy as np
 import pandas as pd
 
 from ndvi_app.config import PHASE_BIEN, PHASE_NU, PHASE_PEU, PHASES, STATUS_OK  # noqa: F401 (réexportés)
+from ndvi_app.core import soil_reading as soil
 
 DEFAULT_SETTINGS = {
     "min_weight": 0.5,          # poids de fiabilité minimal d'une mesure retenue
@@ -200,9 +203,10 @@ def confidence(n_retained, max_gap):
     return "Faible"
 
 
-def analyse_parcel(sub, period_start, period_end, low, high, settings):
+def analyse_parcel(sub, period_start, period_end, low, high, settings, weather_days=None):
     """
     sub : lignes d'une parcelle (Date datetime64, NDVI, Poids, Statut).
+    weather_days : météo journalière (gel avant une baisse rapide) ou None.
     Retourne (detail: DataFrame, courbe: DataFrame, synthese: dict).
     """
     sub = sub.sort_values("Date").reset_index(drop=True)
@@ -217,6 +221,14 @@ def analyse_parcel(sub, period_start, period_end, low, high, settings):
     sub["NDVI_lisse"] = sub["Date"].map(lisse)
     sub["Phase"] = [phase_of(v, low, high) for v in sub["NDVI_lisse"]]
 
+    # Lecture des mesures retenues sur parcelle peu verte (levée, résidus, sol nu)
+    c_start = curve["Date"].iloc[0] if not curve.empty else None
+    has_state = "Etat_sol" in sub
+    sub["Lecture"] = [
+        soil.reading(v, low, r.get("NDTI"), r.get("Etat_sol") if has_state else None,
+                     soil.rise_at(lisse, d, c_start)) if keep else soil.NONE
+        for v, d, keep, (_, r) in zip(sub["NDVI"], sub["Date"], retained, sub.iterrows())]
+
     p0, p1 = pd.Timestamp(period_start), pd.Timestamp(period_end)
     with_year = p0.year != p1.year
     kept_dates = list(kept["Date"])
@@ -229,6 +241,9 @@ def analyse_parcel(sub, period_start, period_end, low, high, settings):
     eps = episodes(curve, low, high, settings["min_episode_days"])
     chrono = " → ".join(f"{lab} ({_fmt(a, with_year)}–{_fmt(b, with_year)})" for lab, a, b in eps)
     drops = rapid_drops(curve, settings)
+    drop_txt = [_fmt(d, with_year) + (" (gel)" if soil.frost_near(weather_days, d) else "")
+                for d in drops]
+    last_i = sub.index[retained][-1] if retained.any() else None
 
     n_hors = int((sub["Statut"] == "Hors image").sum())
     synth = {
@@ -241,14 +256,19 @@ def analyse_parcel(sub, period_start, period_end, low, high, settings):
         "NDVI_fin": float(curve["NDVI_lisse"].iloc[-1]) if not curve.empty else None,
         "Phase_fin": curve["Phase"].iloc[-1] if not curve.empty else None,
         "Chronologie": chrono or "—",
-        "Baisses_rapides": ", ".join(_fmt(d, with_year) for d in drops) or "—",
+        "Baisses_rapides": ", ".join(drop_txt) or "—",
+        "Lecture_fin": sub.at[last_i, "Lecture"] if last_i is not None else soil.NONE,
+        "Etat_sol_fin": (sub.at[last_i, "Etat_sol"] if last_i is not None and has_state
+                         else soil.NONE),
     }
     return sub, curve, synth
 
 
-def analyse_all(df_long, period_start, period_end, low, high, settings=None):
+def analyse_all(df_long, period_start, period_end, low, high, settings=None,
+                weather_days=None):
     """
     df_long : une ligne par parcelle × date (sortie de build_rows).
+    weather_days : météo journalière ou None.
     Retourne (synthese, detail, courbes) — trois DataFrames.
     """
     settings = {**DEFAULT_SETTINGS, **(settings or {})}
@@ -256,7 +276,8 @@ def analyse_all(df_long, period_start, period_end, low, high, settings=None):
     df["Date"] = pd.to_datetime(df["Date"])
     synth_rows, details, curves = [], [], []
     for pid, sub in df.groupby("ID", sort=False):
-        det, curve, synth = analyse_parcel(sub, period_start, period_end, low, high, settings)
+        det, curve, synth = analyse_parcel(sub, period_start, period_end, low, high, settings,
+                                           weather_days)
         details.append(det)
         curves.append(curve.assign(ID=pid))
         synth_rows.append({"ID": pid, "Surface_ha": sub["Surface_ha"].iloc[0]

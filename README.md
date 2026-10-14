@@ -12,7 +12,8 @@ Menu en haut de page, barre latérale de réglages commune à toutes les pages :
   chacune la courbe NDVI au-dessus de la barre des phases (même échelle de temps, mois repérés,
   v4.1), les valeurs NDVI par date ou la synthèse détaillée ; un clic sur une ligne ouvre la
   fiche ;
-- **Fiche parcelle** : courbe NDVI, NDTI, vignette satellite et mesures d'une parcelle ;
+- **Fiche parcelle** : courbe NDVI, météo (pluie, gel, humidité du sol), NDTI, lecture du
+  sol, vignette satellite et mesures d'une parcelle ;
 - **Carte** : carte des phases à une date, exports KML et HTML ;
 - **Une date** : analyse ponctuelle à une date.
 
@@ -60,9 +61,44 @@ indique si l'analyse est enregistrée, et porte les boutons « Exporter » (Exce
 
 NDTI = (B11 − B12) / (B11 + B12), médiane par parcelle, calculé dans la même requête
 que le NDVI. Interprétable seulement si la parcelle est peu verte (NDVI < seuil bas).
-Indicateur « Sol_humide » (réflectance B11 < 0,15 sur parcelle peu verte) : l'humidité
-réduit fortement le contraste NDTI. Aucun seuil d'interprétation tant que le calibrage
-terrain (sol nu / cannes de maïs / chaumes) n'est pas fait.
+L'humidité réduit fortement le contraste NDTI : il n'est lu que sur sol sec (voir
+ci-dessous). Repères indicatifs (≥ 0,10 résidus, ≤ 0,05 sol nu) en attendant le calibrage
+terrain (sol nu / cannes de maïs / chaumes).
+
+## Météo et lecture du sol (v4.2, ndvi_app/core/soil_reading.py)
+
+Météo journalière **ERA5-Land** (ECMWF, maille ≈ 11 km) récupérée dans Earth Engine, **une
+requête par analyse** (`ECMWF/ERA5_LAND/DAILY_AGGR`) : pluie, humidité du sol 0–7 cm,
+température minimale. Enregistrée dans le fichier .zip ; récupérée à la réouverture d'une
+analyse plus ancienne. Publication avec quelques jours de retard : les dernières mesures
+peuvent être lues sans météo (signalé, bouton « Actualiser la météo » sur la fiche).
+
+Pour chaque mesure retenue d'une parcelle **peu verte** (NDVI < seuil bas) :
+
+1. **Météo** : pluie des 3 jours précédents, pluie de la veille, humidité du sol du jour.
+   Humide si pluie 3 j ≥ 10 mm, veille ≥ 5 mm ou humidité ≥ 0,40 ; sec si pluie 3 j < 2 mm
+   et humidité < 0,32 ; frais sinon.
+2. **État du sol** : l'infrarouge moyen B11 voit la surface au passage, la météo confirme.
+
+   | | B11 < 0,15 (sombre) | B11 ≥ 0,15 (clair) |
+   |---|---|---|
+   | météo humide | Humide | Humide probable |
+   | météo fraîche | Humide | Sec |
+   | météo sèche | À vérifier | Sec |
+   | sans météo | Humide probable | Sec |
+
+3. **Lecture**, dans cet ordre : *Levée possible* (NDVI lissé + 0,05 en 14 jours) ;
+   *Indéterminé (sol humide)* ou *(humidité à vérifier)* : NDTI non lu ; *Résidus probables*
+   (NDTI ≥ 0,10) ; *Sol nu probable* (NDTI ≤ 0,05) ; *Indéterminé* entre les deux.
+4. **Gel** : température minimale ≤ −2 °C dans les 7 jours ; une baisse rapide précédée de
+   gel est marquée « (gel) » (couvert gelé plutôt que détruit).
+
+Colonnes Etat_sol, Lecture, Pluie_3j_mm, Humidite_sol, Tmin_7j_C, Gel (détail),
+Lecture_fin et Etat_sol_fin (synthèse, vue d'ensemble), onglet Excel « Météo », graphique
+pluie / gel / humidité sous la courbe de la fiche parcelle. **Tous les seuils sont
+indicatifs, à calibrer avec les relevés terrain** (constantes en tête de
+`core/soil_reading.py`). Une météo indisponible n'empêche pas l'analyse : l'état du sol
+repose alors sur B11 seul.
 
 ## Enregistrer / rouvrir une analyse (ndvi_app/core/session_format.py)
 
