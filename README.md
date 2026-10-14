@@ -43,6 +43,16 @@ indique si l'analyse est enregistrée, et porte les boutons « Exporter » (Exce
 
 ## Interprétation (seuils réglables dans la barre latérale)
 
+**Zone grise « à vérifier »** (v4.2.3, désactivée par défaut) : interrupteur et bornes dans la
+barre latérale (0,20–0,25 par défaut, à caler sur le terrain). Activée, une parcelle dont le
+NDVI lissé à la dernière mesure retenue est dans la plage est signalée « à vérifier » (colonne
+A_verifier, carte de chiffres et filtre de la vue d'ensemble, badge et aide à la lecture de la
+fiche). Désactivée, rien n'est calculé ni affiché. Le réglage est enregistré avec l'analyse.
+
+Le bandeau indique « Réglages modifiés, non enregistrés » quand un réglage d'interprétation
+(seuils, zone grise, qualité, lissage) a changé depuis l'enregistrement ou l'ouverture : le
+fichier .zip garde les réglages du moment où il a été enregistré.
+
 | NDVI (médiane) | Phase |
 |---|---|
 | < 0,25 | Sol nu |

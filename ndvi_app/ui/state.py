@@ -17,7 +17,8 @@ Clés utilisées :
 """
 import streamlit as st
 
-from ndvi_app.config import DEFAULT_BUFFER_M, DEFAULT_MIN_CLEAR, DEFAULT_MIN_PIXELS, DEFAULT_THRESHOLDS
+from ndvi_app.config import (DEFAULT_BUFFER_M, DEFAULT_GREY_ZONE, DEFAULT_MIN_CLEAR,
+                             DEFAULT_MIN_PIXELS, DEFAULT_THRESHOLDS)
 from ndvi_app.core.timeseries import DEFAULT_SETTINGS
 from ndvi_app.earth_engine.sentinel2 import DEFAULT_PARAMS
 
@@ -34,6 +35,7 @@ SETTING_DEFAULTS = {
     "set_iqr": DEFAULT_PARAMS["iqr_k"], "set_minclear": DEFAULT_MIN_CLEAR,
     "set_minpix": DEFAULT_MIN_PIXELS,
     "set_minw": DEFAULT_SETTINGS["min_weight"], "set_smooth": DEFAULT_SETTINGS["smooth_days"],
+    "set_grey_on": False, "set_grey": DEFAULT_GREY_ZONE,
 }
 
 
@@ -83,12 +85,16 @@ def restore_payload(session, token=None):
         "set_iqr": cfg["iqr_k"], "set_minclear": cfg["min_clear"],
         "set_minpix": cfg["min_pixels"], "set_minw": cfg["min_weight"],
         "set_smooth": cfg["smooth_days"],
+        # zone grise enregistrée depuis la v4.2.3 ; absente = désactivée
+        "set_grey_on": bool(cfg.get("grey_zone")),
+        **({"set_grey": tuple(cfg["grey_zone"])} if cfg.get("grey_zone") else {}),
         "mt_start_y": p0.year, "mt_start_m": p0.month, "mt_end_y": p1.year, "mt_end_m": p1.month,
         "mt_raw": session["raws"], "mt_period": (p0, p1), "mt_geoinfo": session["geoinfo"],
         "mt_ctx": {"geoms_key": session["geoms_key"],
                    "params_t": tuple(sorted(session["params"].items()))},
         "mt_errors": session.get("errors", []),
         "mt_token": token, "mt_dirty": False,
+        "mt_saved_settings": None,      # réglages de l'analyse ouverte, relevés au 1er affichage
     }
     # Météo enregistrée depuis la v4.2 ; None → récupérée à l'ouverture (ui/weather.ensure)
     payload["mt_weather"] = session.get("weather")

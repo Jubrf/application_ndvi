@@ -24,6 +24,7 @@ class Settings:
     min_pixels: int            # nombre minimal de pixels utilisés
     min_weight: float          # poids minimal d'une mesure retenue dans la courbe
     smooth_days: int           # lissage de la courbe (jours)
+    grey: tuple | None = None  # zone grise « à vérifier » (NDVI min, max) ou None si désactivée
 
     @property
     def gee_params(self) -> dict:
@@ -39,7 +40,10 @@ class Settings:
     @property
     def ts_settings(self) -> dict:
         """Réglages de l'analyse temporelle modifiables dans l'interface."""
-        return {"min_weight": self.min_weight, "smooth_days": self.smooth_days}
+        out = {"min_weight": self.min_weight, "smooth_days": self.smooth_days}
+        if self.grey:                                    # absente si désactivée
+            out["grey_zone"] = tuple(self.grey)
+        return out
 
 
 @dataclass
@@ -74,7 +78,7 @@ class Context:
     @cached_property
     def column_help(self) -> dict:
         """Définitions des colonnes (dépendent des seuils affichés)."""
-        return column_help(self.settings.low, self.settings.high)
+        return column_help(self.settings.low, self.settings.high, self.settings.grey)
 
     def calc_context(self) -> dict:
         """Ce qui conditionne les calculs GEE : sert à détecter des résultats périmés."""

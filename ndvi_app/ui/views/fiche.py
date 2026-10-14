@@ -68,6 +68,11 @@ def _fiche(ctx, res):
                      icon=":material/psychology_alt:",
                      help="Lecture à la dernière mesure retenue (NDVI, NDTI, état du sol et "
                           "météo) : aide à la décision, à confirmer sur le terrain.")
+        if s_row.get("A_verifier") == "Oui":
+            st.badge("À vérifier (zone grise)", color="orange", icon=":material/help:",
+                     help=f"NDVI en fin de période entre {fr_decimal(s.grey[0])} et "
+                          f"{fr_decimal(s.grey[1])} : vérifier sur l'image infrarouge ou sur "
+                          "le terrain.")
         st.badge(f"Confiance {str(s_row['Confiance']).lower()}", color="blue")
         st.caption(f"{fmt(s_row['Surface_ha'], 2).replace('.', ',')} ha")
 
@@ -170,7 +175,14 @@ def _reading_help(s, s_row, d_pid):
         txt = f":green-background[{text}] :material/arrow_back:" if key == case else text
         return ("  - " if indent else "- ") + txt
 
-    lines = [
+    lines = []
+    if s.grey:
+        g0, g1 = fr_decimal(s.grey[0]), fr_decimal(s.grey[1])
+        in_grey = s_row.get("A_verifier") == "Oui"
+        txt = (f"{g0} ≤ NDVI fin ≤ {g1} → **à vérifier** (zone grise : image infrarouge, "
+               "terrain), en plus de la lecture ci-dessous")
+        lines.append("- " + (f":orange-background[{txt}] :material/arrow_back:" if in_grey else txt))
+    lines += [
         line("couvert", f"NDVI ≥ {low} → **couvert ou culture présent** (maïs jaunissant compris)"),
         f"- NDVI < {low} :",
         line("levee", f"en hausse (+ {fr_decimal(soil.RISE_MIN)} en {soil.RISE_DAYS} j) → "

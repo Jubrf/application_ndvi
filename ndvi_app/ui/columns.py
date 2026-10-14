@@ -14,7 +14,7 @@ TECH_COLS = ["ID", "Date", "Statut", "NDVI_brut", "NDVI_median", "NDVI_pondere",
              "NDVI_ecart_type", "EVI2_median", "NDTI_median", "SWIR1_median", "Poids", "Score_clarte", "Clair_pct",
              "Pixels_total", "Pixels_clairs", "Pixels_utilises", "Outliers_exclus",
              "Surface_ha", "Buffer_m", "Satellite"]
-SYNTH_COLS = ["ID", "Phase_fin", "NDVI_fin", "Lecture_fin", "Etat_sol_fin", "Confiance",
+SYNTH_COLS = ["ID", "Phase_fin", "NDVI_fin", "A_verifier", "Lecture_fin", "Etat_sol_fin", "Confiance",
               "Chronologie", "Baisses_rapides",
               "Mesures_retenues", "Mesures_ecartees", "Plus_long_trou_j", "Derniere_mesure",
               "Jours_sans_mesure_fin", "Surface_ha"]
@@ -36,9 +36,13 @@ def pick(df, cols):
     return df
 
 
-def column_help(low, high):
+def column_help(low, high, grey=None):
     """Définition de chaque colonne ; les seuils d'interprétation y sont rappelés."""
     return {
+        "A_verifier": (f"Zone grise : Oui si le NDVI lissé à la dernière mesure retenue est entre "
+                       f"{_t(grey[0])} et {_t(grey[1])} (bornes incluses), plage de doute entre "
+                       "couvert qui lève, adventices et sol nu : à vérifier sur l'image "
+                       "infrarouge ou sur le terrain." if grey else "Zone grise désactivée."),
         "ID": "Identifiant de la parcelle (champ choisi au chargement).",
         "NDVI": "NDVI médian de la parcelle (pixels clairs, hors valeurs aberrantes). "
                 "Vide si la mesure n'est pas exploitable.",

@@ -203,6 +203,17 @@ def confidence(n_retained, max_gap):
     return "Faible"
 
 
+def _grey_zone(curve, zone):
+    """Zone grise : NDVI lissé à la dernière mesure retenue dans [min, max] → à vérifier.
+    Rien (pas de colonne) quand la zone grise est désactivée."""
+    if not zone:
+        return {}
+    if curve.empty:
+        return {"A_verifier": "—"}
+    v = float(curve["NDVI_lisse"].iloc[-1])
+    return {"A_verifier": "Oui" if zone[0] <= v <= zone[1] else "Non"}
+
+
 def analyse_parcel(sub, period_start, period_end, low, high, settings, weather_days=None):
     """
     sub : lignes d'une parcelle (Date datetime64, NDVI, Poids, Statut).
@@ -258,6 +269,7 @@ def analyse_parcel(sub, period_start, period_end, low, high, settings, weather_d
         "Chronologie": chrono or "—",
         "Baisses_rapides": ", ".join(drop_txt) or "—",
         "Lecture_fin": sub.at[last_i, "Lecture"] if last_i is not None else soil.NONE,
+        **_grey_zone(curve, settings.get("grey_zone")),
         "Etat_sol_fin": (sub.at[last_i, "Etat_sol"] if last_i is not None and has_state
                          else soil.NONE),
     }

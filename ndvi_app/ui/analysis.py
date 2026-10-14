@@ -74,5 +74,8 @@ def results(ctx):
     return TemporalResults(df_long, synthese, detail, courbes, p_start, p_end)
 
 
-def mark_saved():
+def mark_saved(settings_t=None):
+    """Bouton « Enregistrer » : plus de modification en attente ; réglages d'interprétation
+    de la version enregistrée (badge « Réglages modifiés » s'ils changent ensuite)."""
     st.session_state.mt_dirty = False
+    st.session_state.mt_saved_settings = settings_t

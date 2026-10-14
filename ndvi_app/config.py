@@ -8,7 +8,7 @@ de l'analyse temporelle dans ndvi_app/core/timeseries.py.
 
 # Version affichée dans la barre latérale : à changer à chaque modification,
 # pour savoir quel code tourne réellement sur Streamlit Cloud.
-APP_VERSION = "v4.2.2 — 14/10/2026"
+APP_VERSION = "v4.2.3 — 14/10/2026"
 
 # ------------------------------------------------------------------ phases NDVI
 PHASE_NU = "Sol nu"
@@ -18,6 +18,8 @@ PHASES = [PHASE_NU, PHASE_PEU, PHASE_BIEN]
 
 # Seuils d'interprétation par défaut (réglables dans la barre latérale)
 DEFAULT_THRESHOLDS = (0.25, 0.50)
+# Zone grise « à vérifier » (NDVI en fin de période), désactivée par défaut, à caler sur le terrain
+DEFAULT_GREY_ZONE = (0.20, 0.25)
 
 # Couleurs des phases (cartes, graphiques, KML)
 COLOR_MAP = {PHASE_NU: "#d73027", PHASE_PEU: "#a6d96a", PHASE_BIEN: "#1a9850"}

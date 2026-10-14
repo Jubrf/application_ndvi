@@ -17,6 +17,7 @@ from ndvi_app.config import COLOR_MAP, PHASE_BIEN, PHASE_NU, PHASE_PEU
 from ndvi_app.ui.banner import pivot_all, pivot_for
 from ndvi_app.ui.charts import phase_evolution_uri
 from ndvi_app.ui.columns import SYNTH_COLS, column_config, pick
+from ndvi_app.ui.formatting import fr_decimal
 
 NO_PHASE = "Aucune courbe"
 ALL = "Toutes"
@@ -43,7 +44,10 @@ def render(app):
 
     # ── Chiffres clés ──────────────────────────────────────
     labels = [(ALL, len(syn))] + [(ph, int((phase == ph).sum())) for ph in list(COLOR_MAP) + [NO_PHASE]]
-    for col, (lab, n) in zip(st.columns(len(labels)), labels):
+    grey_on = "A_verifier" in syn
+    n_grey = int((syn["A_verifier"] == "Oui").sum()) if grey_on else 0
+    cards = labels + ([("À vérifier", n_grey)] if grey_on else [])
+    for col, (lab, n) in zip(st.columns(len(cards)), cards):
         col.metric("Toutes les parcelles" if lab == ALL else lab, n, border=True)
 
     # ── Filtres ────────────────────────────────────────────
@@ -59,7 +63,14 @@ def render(app):
     with c3:
         query = st.text_input("Rechercher une parcelle", key="ov_q", placeholder="Identifiant",
                               persist_state="session")
+    only_grey = grey_on and st.toggle(
+        f"Seulement les parcelles à vérifier ({n_grey})", key="ov_grey_only",
+        persist_state="session",
+        help=f"NDVI en fin de période dans la zone grise ({fr_decimal(s.grey[0])}–"
+             f"{fr_decimal(s.grey[1])}, réglable dans la barre latérale).")
     mask = syn["Confiance"].isin(f_conf)
+    if only_grey:
+        mask &= syn["A_verifier"] == "Oui"
     if f_phase != ALL:
         mask &= phase == f_phase
     if query:
@@ -77,7 +88,7 @@ def render(app):
         return
 
     table_key = "ov_table_" + hashlib.md5(
-        "|".join([view, f_phase, query or ""] + sorted(f_conf)).encode()).hexdigest()[:8]
+        "|".join([view, f_phase, query or "", str(only_grey)] + sorted(f_conf)).encode()).hexdigest()[:8]
     if view == VIEWS[0]:
         event = _evolution_table(shown, res, s, table_key)
     elif view == VIEWS[1]:
@@ -100,6 +111,7 @@ def _evolution_table(shown, res, settings, key):
             "ID": r["ID"], "Surface_ha": r["Surface_ha"],
             "Evolution": phase_evolution_uri(c, res.p_start, res.p_end, settings.low, settings.high),
             "NDVI_fin": r["NDVI_fin"], "Phase_fin": r["Phase_fin"] if pd.notna(r["Phase_fin"]) else NO_PHASE,
+            **({"A_verifier": r["A_verifier"]} if "A_verifier" in r else {}),
             "Lecture_fin": r.get("Lecture_fin", "—"),
             "Confiance": r["Confiance"], "Baisses_rapides": r["Baisses_rapides"],
         })
@@ -118,6 +130,9 @@ def _evolution_table(shown, res, settings, key):
                  "de chaque mois, même échelle de temps pour toutes les parcelles."),
         "NDVI_fin": st.column_config.NumberColumn("NDVI fin", format="%.2f"),
         "Phase_fin": st.column_config.TextColumn("Phase fin", width="medium"),
+        "A_verifier": st.column_config.TextColumn(
+            "À vérifier", help="NDVI en fin de période dans la zone grise (barre latérale) : "
+                               "à vérifier sur l'image infrarouge ou sur le terrain."),
         "Lecture_fin": st.column_config.TextColumn(
             "Lecture fin", width="large",
             help="Parcelle peu verte à la dernière mesure : levée possible, résidus probables, "

@@ -169,6 +169,16 @@ qualité minimale et la courbe restent réglables. Le format du fichier .zip est
 | Bandeau, fichiers Excel et .zip | `ui/banner.py` |
 | Couleur principale de l'interface | `.streamlit/config.toml` |
 
+## Zone grise et état d'enregistrement (v4.2.3)
+
+- `Settings.grey` (barre latérale, `set_grey_on` / `set_grey`) : None si désactivée. Passée à
+  l'analyse par `ts_settings` (clé `grey_zone`, absente si désactivée : résultats et fichiers
+  identiques à la v4.2.2) ; `timeseries._grey_zone` ajoute A_verifier à la synthèse.
+  Enregistrée dans `settings.grey_zone` du .zip, restaurée à l'ouverture.
+- Badge du bandeau : `mt_saved_settings` (réglages d'interprétation au dernier
+  enregistrement, ou relevés au premier affichage d'une analyse ouverte) comparé aux réglages
+  courants → « Réglages modifiés, non enregistrés ».
+
 ## Météo et lecture du sol (v4.2)
 
 - `earth_engine/weather.py` : `daily_weather(start, end, region_key, region_geojson)` →

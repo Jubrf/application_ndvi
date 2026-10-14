@@ -76,6 +76,7 @@ def _session_zip(token, ids, settings_t, id_field, source_name, file_hash, wkey,
                 "iqr_k": calc_params["iqr_k"],
                 "min_clear": int(s["min_clear"]), "min_pixels": int(s["min_pixels"]),
                 "min_weight": float(s["min_weight"]), "smooth_days": int(s["smooth_days"]),
+                **({"grey_zone": list(s["grey"])} if s.get("grey") else {}),
             },
             "period": list(_period),
             "errors": _errors,
@@ -111,8 +112,21 @@ def render(app):
         if res is None:
             st.badge("Pas encore d'analyse temporelle", color="gray")
             return
+        settings_t = tuple(sorted({"low": s.low, "high": s.high, "min_clear": s.min_clear,
+                                   "min_pixels": s.min_pixels, "min_weight": s.min_weight,
+                                   "smooth_days": s.smooth_days,
+                                   **({"grey": s.grey} if s.grey else {})}.items()))
+        # Réglages d'interprétation de la version enregistrée (ou ouverte) : un seuil changé
+        # depuis rend le fichier différent de ce qui est affiché
+        if not ss.get("mt_dirty") and ss.get("mt_saved_settings") is None:
+            ss.mt_saved_settings = settings_t
         if ss.get("mt_dirty"):
             st.badge("Modifications non enregistrées", icon=":material/warning:", color="orange")
+        elif ss.get("mt_saved_settings") != settings_t:
+            st.badge("Réglages modifiés, non enregistrés", icon=":material/tune:", color="orange",
+                     help="Un réglage d'interprétation (seuils, zone grise, qualité, lissage) a "
+                          "changé depuis l'enregistrement : les tableaux affichés ne sont plus "
+                          "ceux du fichier. « Enregistrer » pour garder ces réglages.")
         else:
             st.badge("Enregistrée", icon=":material/check:", color="green")
         st.space("stretch")
@@ -128,9 +142,6 @@ def render(app):
             if len(res.synthese) > MAX_CHARTS:
                 st.caption(f"Graphiques Excel limités aux {MAX_CHARTS} premières parcelles.")
             st.caption("Cartes KML et HTML : page Carte.")
-        settings_t = tuple(sorted({"low": s.low, "high": s.high, "min_clear": s.min_clear,
-                                   "min_pixels": s.min_pixels, "min_weight": s.min_weight,
-                                   "smooth_days": s.smooth_days}.items()))
         st.download_button(
             "Enregistrer", type="primary", icon=":material/save:",
             data=_session_zip(ss.mt_token, ids, settings_t, p.id_field if p.fields else None,
@@ -138,7 +149,7 @@ def render(app):
                               ss.mt_geoinfo, ss.mt_raw, ss.mt_ctx, ss.mt_period,
                               ss.get("mt_errors", []), ss.get("mt_weather")),
             file_name=f"analyse_ndvi_{res.p_start}_{res.p_end}.zip", mime="application/zip",
-            key="mt_save", on_click=analysis.mark_saved,
+            key="mt_save", on_click=analysis.mark_saved, args=(settings_t,),
             help="Fichier .zip avec les réglages, les résultats de chaque date et les contours "
                  "des parcelles, à rouvrir plus tard sans recalcul (page Projet).")
     stale_warning(ss.mt_ctx, ctx.calc_context())

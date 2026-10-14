@@ -24,6 +24,18 @@ def render_sidebar(locked=False) -> Settings:
         )
         if high - low < 0.05:
             st.warning("Les deux seuils sont très proches.")
+        grey_on = st.toggle(
+            "Zone grise « à vérifier »", key="set_grey_on",
+            help="Repère les parcelles dont le NDVI en fin de période tombe dans une plage de "
+                 "doute (couvert qui lève, adventices, sol nu) : à vérifier sur l'image "
+                 "infrarouge ou sur le terrain. Désactivée : rien n'est signalé.")
+        # Toujours affiché (grisé si désactivé) : les bornes choisies sont conservées
+        grey = st.slider("Zone grise (NDVI)", 0.0, 1.0, step=0.01, key="set_grey",
+                         disabled=not grey_on,
+                         help="NDVI lissé à la dernière mesure retenue compris dans cette plage "
+                              "(bornes incluses) → « à vérifier ». Bornes à caler avec les "
+                              "relevés terrain.")
+        grey = grey if grey_on else None
         min_clear = st.slider("Part minimale de pixels clairs (%)", 0, 100, step=5,
                               key="set_minclear",
                               help="Mesure non exploitable si la part de pixels clairs de la "
@@ -68,4 +80,5 @@ def render_sidebar(locked=False) -> Settings:
 
     return Settings(low=low, high=high, buffer_m=buffer_m, cs_threshold=cs_threshold,
                     cloud_buffer_m=cloud_buffer_m, iqr_k=iqr_k, min_clear=min_clear,
-                    min_pixels=min_pixels, min_weight=min_weight, smooth_days=smooth_days)
+                    min_pixels=min_pixels, min_weight=min_weight, smooth_days=smooth_days,
+                    grey=tuple(grey) if grey else None)
