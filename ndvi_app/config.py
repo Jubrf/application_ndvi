@@ -8,7 +8,7 @@ de l'analyse temporelle dans ndvi_app/core/timeseries.py.
 
 # Version affichée dans la barre latérale : à changer à chaque modification,
 # pour savoir quel code tourne réellement sur Streamlit Cloud.
-APP_VERSION = "v4.2.1 — 14/10/2026"
+APP_VERSION = "v4.2.2 — 14/10/2026"
 
 # ------------------------------------------------------------------ phases NDVI
 PHASE_NU = "Sol nu"

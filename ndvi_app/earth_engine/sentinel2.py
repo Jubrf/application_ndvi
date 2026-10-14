@@ -329,33 +329,46 @@ def compute_day_stats(date_str, geoms_key, params_t, _geojsons, _region_geojson)
 
 
 # ----------------------------------------------------------
-# VIGNETTE SATELLITE D'UNE PARCELLE (couleurs naturelles)
+# VIGNETTE SATELLITE D'UNE PARCELLE (couleurs naturelles ou fausses couleurs infrarouges)
 # Une seule requête légère (getThumbURL) : l'image est servie par Google
 # directement au navigateur. Le lien expire après quelques heures.
 # ----------------------------------------------------------
 THUMB_MARGIN_M = 150      # marge autour de la parcelle
 THUMB_SIZE_PX = 512
+THUMB_NATURAL, THUMB_INFRARED = "naturel", "infrarouge"
+# Couleurs naturelles : rouge, vert, bleu. Fausses couleurs : proche infrarouge (B8) en rouge,
+# rouge (B4) en vert, vert (B3) en bleu : la végétation chlorophyllienne, très réfléchissante
+# dans le proche infrarouge, ressort en rouge vif, même jeune ou clairsemée ; sol nu gris-brun
+# à bleuté. Pixels masqués en cyan dans ce mode (le magenta se confondrait avec la végétation).
+THUMB_VIS = {
+    THUMB_NATURAL: {"bands": ["B4", "B3", "B2"], "min": 0, "max": 2500, "gamma": 1.2,
+                    "mask": "ff00ff"},
+    THUMB_INFRARED: {"bands": ["B8", "B4", "B3"], "min": 0, "max": [4500, 2500, 2500],
+                     "gamma": 1.1, "mask": "00ffff"},
+}
 
 
 @st.cache_data(show_spinner=False, ttl=2 * 3600, max_entries=300)
 def parcel_thumbnail(date_str, parcel_key, params_t, _parcel_geojson, _analysis_geojson,
-                     show_mask=True):
+                     show_mask=True, mode=THUMB_NATURAL):
     """
     Retourne l'URL d'une image PNG de la parcelle à la date donnée :
-      couleurs naturelles (B4, B3, B2) · pixels masqués en magenta (option)
+      couleurs naturelles (B4, B3, B2) ou fausses couleurs infrarouges (B8, B4, B3)
+      · pixels masqués en magenta (cyan en infrarouge, option)
       · contour blanc : parcelle · contour jaune : zone analysée (après buffer).
     """
+    vis = THUMB_VIS.get(mode, THUMB_VIS[THUMB_NATURAL])
     params = dict(params_t)
     parcel = ee.Geometry(_parcel_geojson)
     region = parcel.buffer(THUMB_MARGIN_M).bounds()
     d0 = ee.Date(date_str)
     s2, prepared = _collections(region, d0, d0.advance(1, "day"), params)
 
-    img = (s2.select(["B4", "B3", "B2"]).mosaic()
-           .visualize(min=0, max=2500, gamma=1.2))
+    img = (s2.select(vis["bands"]).mosaic()
+           .visualize(min=vis["min"], max=vis["max"], gamma=vis["gamma"]))
     if show_mask:
         masked = prepared.select("CLEAR").max().eq(0).selfMask()
-        img = img.blend(masked.visualize(palette=["ff00ff"], opacity=0.45))
+        img = img.blend(masked.visualize(palette=[vis["mask"]], opacity=0.45))
     outline = (ee.Image().byte()
                .paint(ee.FeatureCollection([ee.Feature(parcel)]), 1, 2)
                .visualize(palette=["ffffff"]))

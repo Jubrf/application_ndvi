@@ -13,7 +13,8 @@ Menu en haut de page, barre latérale de réglages commune à toutes les pages :
   v4.1), les valeurs NDVI par date ou la synthèse détaillée ; un clic sur une ligne ouvre la
   fiche ;
 - **Fiche parcelle** : courbe NDVI, météo (pluie, gel, humidité du sol), NDTI, lecture du
-  sol, vignette satellite, aide à la lecture (règle simplifiée, cas de la parcelle surligné)
+  sol, vignette satellite (couleurs naturelles ou fausses couleurs infrarouges : végétation
+  verte en rouge vif, utile pour un couvert jeune ou des adventices), aide à la lecture (règle simplifiée, cas de la parcelle surligné)
   et mesures d'une parcelle ;
 - **Carte** : carte des phases à une date, exports KML et HTML ;
 - **Une date** : analyse ponctuelle à une date.
