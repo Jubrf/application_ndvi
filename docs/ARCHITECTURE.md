@@ -33,7 +33,8 @@ ndvi_app/
     completion.py           compléter une analyse : dates à ajouter, fusion des résultats
   earth_engine/
     sentinel2.py            collections, masque nuages, dates disponibles,
-                            statistiques zonales, vignettes (avec cache Streamlit)
+                            statistiques zonales, vignettes (cache : ndvi_app/cache.py,
+                            st.cache_data sous Streamlit, mémoire dans l'API v5)
     weather.py              météo journalière ERA5-Land (une requête par période)
   exports/
     excel.py                classeur Excel + onglet Lexique

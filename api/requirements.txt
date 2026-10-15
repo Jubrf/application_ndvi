@@ -1,5 +1,5 @@
 # Dépendances du service web v5 (API + interface React), installées par Render (render.yaml).
-# Étape 1 : pas d'Earth Engine ni de Streamlit.
+# Pas de Streamlit : le cache Earth Engine passe par ndvi_app/cache.py.
 fastapi>=0.115
 uvicorn>=0.30
 python-multipart>=0.0.9
@@ -10,3 +10,4 @@ pyproj
 pyshp
 openpyxl
 folium
+earthengine-api>=1.0

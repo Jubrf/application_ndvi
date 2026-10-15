@@ -13,8 +13,8 @@ import datetime
 import time
 
 import ee
-import streamlit as st
 
+from ndvi_app.cache import cache_data
 from ndvi_app.logs import log
 
 ERA5_COLLECTION = "ECMWF/ERA5_LAND/DAILY_AGGR"
@@ -22,9 +22,16 @@ BANDS = ["total_precipitation_sum", "volumetric_soil_water_layer_1", "temperatur
 ERA5_SCALE_M = 11132
 NEIGHBOURHOOD_M = 8000      # ≥ demi-diagonale d'une maille : toujours au moins une maille
 SOURCE = "ERA5-Land (ECMWF), Google Earth Engine"
+# Jours récupérés avant le début de la période : pluie des 3 jours précédents, gel des 7 à 10 jours
+WX_MARGIN_DAYS = 10
 
 
-@st.cache_data(ttl=6 * 3600, show_spinner="Récupération de la météo (ERA5-Land)…")
+def needed_period(p_start, p_end):
+    """(début, fin) ISO de la météo nécessaire à une analyse du p_start au p_end (dates)."""
+    return (str(p_start - datetime.timedelta(days=WX_MARGIN_DAYS)), str(p_end))
+
+
+@cache_data(ttl=6 * 3600, show_spinner="Récupération de la météo (ERA5-Land)…")
 def daily_weather(start, end, region_key, _region_geojson):
     """
     start, end : "YYYY-MM-DD" (end inclus) ; region_key : clé de cache de la zone.

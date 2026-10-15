@@ -21,14 +21,15 @@ Chaîne de traitement d'une date :
 Seul module de l'application qui dépend d'Earth Engine : les fonctions publiques
 (init_gee, list_dates, compute_day_stats, parcel_thumbnail) renvoient des types Python
 simples (dict, list, str) exploités par ndvi_app/core et ndvi_app/ui.
-Les résultats sont mis en cache par Streamlit (clés : dates, géométries, paramètres).
+Les résultats sont mis en cache (ndvi_app.cache : Streamlit ou mémoire ; clés : dates,
+géométries, paramètres).
 """
 import datetime
 import time
 
 import ee
-import streamlit as st
 
+from ndvi_app.cache import cache_data, cache_resource
 from ndvi_app.logs import log
 
 S2_COLLECTION = "COPERNICUS/S2_SR_HARMONIZED"
@@ -61,7 +62,7 @@ _MAX_RAW = 20000  # médiane/percentiles exacts jusqu'à 20 000 pixels (200 ha)
 REQUEST_TIMEOUT_S = 90
 
 
-@st.cache_resource
+@cache_resource
 def init_gee(service_account, private_key):
     t0 = time.time()
     log("Connexion à Earth Engine…")
@@ -142,7 +143,7 @@ def _first(d, suffix, exact):
     return 0
 
 
-@st.cache_data(show_spinner="Recherche des dates disponibles…", ttl=6 * 3600)
+@cache_data(show_spinner="Recherche des dates disponibles…", ttl=6 * 3600)
 def list_dates(start, end, region_key, params_t, _region_geojson):
     """
     start, end : "YYYY-MM-DD" (end inclus)
@@ -293,7 +294,7 @@ def _zonal_stats(day_img, proj, fc, params):
     return fc3.map(lambda f: ee.Feature(None, f.toDictionary()))
 
 
-@st.cache_data(show_spinner=False, ttl=6 * 3600, max_entries=200)
+@cache_data(show_spinner=False, ttl=6 * 3600, max_entries=200)
 def compute_day_stats(date_str, geoms_key, params_t, _geojsons, _region_geojson):
     """
     date_str  : "YYYY-MM-DD" (date d'acquisition présente dans list_dates)
@@ -348,7 +349,7 @@ THUMB_VIS = {
 }
 
 
-@st.cache_data(show_spinner=False, ttl=2 * 3600, max_entries=300)
+@cache_data(show_spinner=False, ttl=2 * 3600, max_entries=300)
 def parcel_thumbnail(date_str, parcel_key, params_t, _parcel_geojson, _analysis_geojson,
                      show_mask=True, mode=THUMB_NATURAL):
     """

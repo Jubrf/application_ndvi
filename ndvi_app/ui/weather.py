@@ -10,13 +10,8 @@ import datetime
 import streamlit as st
 
 from ndvi_app.earth_engine import weather as era5
+from ndvi_app.earth_engine.weather import WX_MARGIN_DAYS, needed_period  # noqa: F401 (réexportés)
 from ndvi_app.logs import log
-
-WX_MARGIN_DAYS = 10
-
-
-def needed_period(p_start, p_end):
-    return (str(p_start - datetime.timedelta(days=WX_MARGIN_DAYS)), str(p_end))
 
 
 def fetch(ctx, start, end):

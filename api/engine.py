@@ -11,13 +11,12 @@ import threading
 from collections import OrderedDict
 
 import pandas as pd
-from shapely.geometry import shape
-
 from ndvi_app.config import APP_VERSION, COLOR_INVALID, DEFAULT_GREY_ZONE
-from ndvi_app.core.geometry import centroids
-from ndvi_app.core.quality import build_rows, colorize
+from ndvi_app.core.geometry import centroids, region_geojson
+from ndvi_app.core.quality import build_rows, colorize, unique_ids
 from ndvi_app.core.session_format import build_session_zip, read_session_zip, saved_settings
 from ndvi_app.core.timeseries import analyse_all
+from ndvi_app.core.vector_io import load_vector_from_bytes
 from ndvi_app.exports import workbook
 from ndvi_app.exports.folium_map import build_map, legend_text
 from ndvi_app.exports.kml import build_kml
@@ -32,13 +31,13 @@ class Analysis:
 
     def __init__(self, data, file_name):
         session, geojson = read_session_zip(data)
-        gj = json.loads(geojson)
+        self.data = data                       # fichier tel quel (renvoyé à l'interface)
         self.key = hashlib.sha1(data).hexdigest()[:16]
         self.file_name = file_name
         self.session = session
-        self.features = [{"geometry": shape(f["geometry"]), "properties": f.get("properties", {})}
-                         for f in gj["features"]]
-        self.ids = [f["properties"]["ID"] for f in gj["features"]]
+        # mêmes contours que l'interface Streamlit (ui/loading.py lit parcelles.geojson ainsi)
+        self.features = load_vector_from_bytes(geojson, "parcelles.geojson")
+        self.ids = unique_ids([f["properties"].get("ID") for f in self.features])
         if len(self.ids) != len(session["geoinfo"]):
             raise ValueError("fichier incohérent : nombre de parcelles différent entre "
                              "session.json et parcelles.geojson.")
@@ -46,8 +45,24 @@ class Analysis:
         weather = session.get("weather") or {}
         self.weather_days = weather.get("days") or None
         self.positions = centroids(self.ids, session["geoinfo"])
+        self.geoinfo = session["geoinfo"]
+        self.file_hash = session.get("file_hash") or self.key
+        self.geoms_key = session["geoms_key"]
+        self.params_t = tuple(sorted(session["params"].items()))
+        self._region = None
         self._cache = OrderedDict()
         self._lock = threading.Lock()
+
+    @property
+    def region(self):
+        """Union simplifiée des parcelles (zone des requêtes de dates et de météo)."""
+        if self._region is None:
+            self._region = region_geojson(self.features)
+        return self._region
+
+    @property
+    def calc(self):
+        return {"geoms_key": self.geoms_key, "params_t": self.params_t}
 
     # ------------------------------------------------------------ réglages
     def default_settings(self):
@@ -103,6 +118,7 @@ class Analysis:
             "errors": ss.get("errors") or [],
             "weather": None if not self.weather_days else {
                 "first": min(self.weather_days), "last": max(self.weather_days)},
+            "weather_error": (ss.get("weather") or {}).get("error"),
             "settings": self.default_settings(),
             "locked": {"buffer_m": c["buffer_m"], "cs_threshold": c["cs_threshold"],
                        "cloud_buffer_m": c["cloud_buffer_m"], "iqr_k": c["iqr_k"]},
