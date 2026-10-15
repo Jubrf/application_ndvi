@@ -35,7 +35,7 @@ function Overview({ s, go, sel }) {
     const c = { nu: 0, peu: 0, bien: 0, none: 0 };
     D.parcels.forEach((p) => c[phaseFin(p, s)]++);
     return c;
-  }, [s]);
+  }, [s, D]);
   const nGrey = s.greyOn ? D.parcels.filter((p) => inGrey(p, s)).length : 0;
   const shown = D.parcels.filter((p) => (phase === "all" || phaseFin(p, s) === phase) && conf.has(p.conf)
     && (!q || p.id.toLowerCase().includes(q.toLowerCase())) && (!onlyGrey || inGrey(p, s)));
