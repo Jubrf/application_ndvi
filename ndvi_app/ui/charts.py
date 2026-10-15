@@ -103,13 +103,20 @@ def parcel_chart(detail, curve, period_start, period_end, low, high,
                      alt.Tooltip("NDVI_aff:Q", title="NDVI brut", format=".3f"),
                      alt.Tooltip("Motif:N", title="Écartée")]))
     if not kept.empty:
-        layers.append(alt.Chart(kept).mark_circle(
-            size=64, color=CURVE_COLOR, stroke="white", strokeWidth=1.5, opacity=1).encode(
-            x=x_enc, y=alt.Y("NDVI_aff:Q", scale=y_scale),
-            tooltip=[alt.Tooltip("Date:T", title="Date", format="%d/%m/%Y"),
-                     alt.Tooltip("NDVI_aff:Q", title="NDVI mesuré", format=".3f"),
-                     alt.Tooltip("Fiabilite:N", title="Fiabilité"),
-                     alt.Tooltip("Poids:Q", title="Poids", format=".2f")]))
+        # mesures retenues ; celles qui portent une remarque (chute ponctuelle gardée, v4.3)
+        # sont dessinées pareil, avec la remarque dans l'infobulle
+        noted = kept["Motif"].notna() if "Motif" in kept else pd.Series(False, index=kept.index)
+        for part, extra in ((kept[~noted], []),
+                            (kept[noted], [alt.Tooltip("Motif:N", title="Remarque")])):
+            if part.empty:
+                continue
+            layers.append(alt.Chart(part).mark_circle(
+                size=64, color=CURVE_COLOR, stroke="white", strokeWidth=1.5, opacity=1).encode(
+                x=x_enc, y=alt.Y("NDVI_aff:Q", scale=y_scale),
+                tooltip=[alt.Tooltip("Date:T", title="Date", format="%d/%m/%Y"),
+                         alt.Tooltip("NDVI_aff:Q", title="NDVI mesuré", format=".3f"),
+                         alt.Tooltip("Fiabilite:N", title="Fiabilité"),
+                         alt.Tooltip("Poids:Q", title="Poids", format=".2f")] + extra))
 
     return (alt.layer(*layers).properties(height=height).resolve_scale(color="independent")
             .configure_axisY(minExtent=AXIS_Y_WIDTH))

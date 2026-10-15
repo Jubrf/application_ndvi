@@ -179,6 +179,17 @@ qualité minimale et la courbe restent réglables. Le format du fichier .zip est
   enregistrement, ou relevés au premier affichage d'une analyse ouverte) comparé aux réglages
   courants → « Réglages modifiés, non enregistrés ».
 
+
+## Mesures basses et nuages (v4.3)
+
+`timeseries.select_measures` ne rejette plus toute valeur nettement sous ses voisines
+(`low_points`) : seulement celles qui portent un signe de nuage (`Clair_pct` < 100 %,
+`Score_clarte` < 0,75, ou nuages sur le secteur selon `sector_cloudiness`), et les séries de
+mesures basses consécutives dont toutes les mesures en portent un. Une fauche suivie de sa
+repousse (luzerne, prairie) reste dans la courbe. `analyse_all(..., positions=...)` reçoit le
+centre des parcelles (`geometry.centroids(ids, geoinfo)`) pour comparer chaque mesure basse aux
+parcelles à moins de 2 km le même jour ; sans positions, repli sur l'ensemble de la journée.
+Aucune donnée Earth Engine supplémentaire : les analyses enregistrées en profitent à l'ouverture.
 ## Météo et lecture du sol (v4.2)
 
 - `earth_engine/weather.py` : `daily_weather(start, end, region_key, region_geojson)` →

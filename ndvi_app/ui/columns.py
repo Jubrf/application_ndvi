@@ -114,7 +114,8 @@ def column_help(low, high, grey=None):
                            "ERA5-Land dans les 10 jours avant ou 3 jours après (couvert gelé "
                            "plutôt que détruit).",
         "Mesures_retenues": "Mesures utilisées pour la courbe.",
-        "Mesures_ecartees": "Mesures non utilisées (nuages, poids trop faible, chute isolée), "
+        "Mesures_ecartees": "Mesures non utilisées (nuages, poids trop faible, chute isolée "
+                            "sur image nuageuse), "
                             "hors dates où la parcelle n'était pas dans l'image.",
         "Plus_long_trou_j": "Plus long intervalle sans mesure retenue sur la période, bords compris (jours).",
         "Derniere_mesure": "Date de la dernière mesure retenue.",
@@ -122,8 +123,12 @@ def column_help(low, high, grey=None):
         # Détail temporel
         "NDVI_lisse": "Valeur de la courbe lissée à cette date.",
         "Retenue": "Oui si la mesure est utilisée pour la courbe.",
-        "Motif": "Raison de l'exclusion : statut non OK, poids trop faible, ou chute isolée "
-                 "(valeur nettement sous ses voisines avant et après : résidu de nuage probable).",
+        "Motif": "Raison de l'exclusion : statut non OK, poids trop faible, chute isolée "
+                 "(valeur nettement sous ses voisines avant et après) avec un signe de nuage "
+                 "(parcelle en partie masquée, score de clarté < 0,75 ou nuages sur le secteur), "
+                 "ou baisse sur plusieurs dates toutes nuageuses. Une baisse sur plusieurs dates "
+                 "dont une sur image propre (fauche, récolte) est gardée ; une chute seule sur "
+                 "image propre aussi, avec la mention « chute ponctuelle sans nuage détecté ».",
         "Incertain": "Vrai si la date est à plus de 15 jours de toute mesure retenue "
                      "(courbe interpolée, tracée en pointillé).",
         # Technique

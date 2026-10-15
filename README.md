@@ -61,8 +61,19 @@ fichier .zip garde les réglages du moment où il a été enregistré.
 
 ## Analyse temporelle (ndvi_app/core/timeseries.py)
 
-1. Mesures retenues : statut OK, poids de fiabilité ≥ 0,5, pas de chute isolée
-   (valeur inférieure de plus de 0,15 à ses voisines avant et après, à ±15 jours).
+1. Mesures retenues : statut OK, poids de fiabilité ≥ 0,5. Une mesure basse (inférieure de
+   plus de 0,15 à ses voisines avant et après, à ±15 jours) n'est écartée que si un nuage est
+   probable (v4.3) :
+   - signe de nuage : parcelle en partie masquée (< 100 % de pixels clairs), score de clarté
+     Cloud Score+ < 0,75, ou nuages sur le secteur ce jour-là (la moitié des parcelles à moins
+     de 2 km masquées ou en baisse, s'il y en a au moins 5 ; sinon 30 % des parcelles du jour
+     en partie masquées) ;
+   - plusieurs mesures basses consécutives (fauche, récolte puis repousse) : gardées, sauf si
+     toutes portent un signe de nuage ;
+   - mesure basse seule : écartée avec un signe de nuage, sinon gardée et signalée
+     (« chute ponctuelle sans nuage détecté »).
+   Les analyses enregistrées sont réinterprétées avec cette règle à l'ouverture (pas de
+   nouvel appel Earth Engine).
 2. Courbe lissée journalière : moyenne pondérée à noyau gaussien (6 jours par défaut),
    poids réduit pour les points sous la courbe ; pas d'extrapolation.
 3. Phases de la courbe, épisodes de moins de 10 jours fusionnés, baisses rapides

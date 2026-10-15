@@ -8,7 +8,7 @@ Préparation des géométries d'analyse (côté Python, sans GEE).
 - Conservation des trous (îlots non cultivés à l'intérieur d'une parcelle).
 """
 from pyproj import CRS, Transformer
-from shapely.geometry import mapping
+from shapely.geometry import mapping, shape
 from shapely.ops import transform, unary_union
 
 # Surface minimale après buffer pour accepter un niveau de buffer donné.
@@ -105,3 +105,19 @@ def looks_like_wgs84(features):
 def outline_geojson(geom):
     """Contour d'origine de la parcelle (WGS84, sans Z), pour l'affichage."""
     return mapping(strip_z(geom).buffer(0))
+
+
+def centroids(ids, geoinfo):
+    """{ID: (lon, lat)} du centre de chaque géométrie d'analyse (parcelles sans géométrie
+    exploitable omises) : voisinage des parcelles pour repérer les nuages sur un secteur."""
+    out = {}
+    for pid, g in zip(ids, geoinfo):
+        gj = (g or {}).get("geojson")
+        if gj:
+            try:
+                c = shape(gj).centroid
+            except (ValueError, TypeError, AttributeError):
+                continue
+            if not c.is_empty:
+                out[pid] = (c.x, c.y)
+    return out
