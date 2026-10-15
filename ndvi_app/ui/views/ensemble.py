@@ -166,7 +166,7 @@ def _values_table(shown, res, settings, key):
         css[c] = values[c].map(tint)
     styler = shown_txt.style.apply(lambda _: css, axis=None)
     st.caption("Mesures retenues uniquement, teintées selon la phase (seuils de la barre latérale). "
-               "« — » : pas de mesure retenue ce jour-là (nuages, poids trop faible, chute isolée).")
+               "« — » : pas de mesure retenue ce jour-là (nuages, poids trop faible, chute isolée sur image nuageuse).")
     return st.dataframe(styler, hide_index=True,
                         column_config={"ID": st.column_config.TextColumn("Parcelle", pinned=True)},
                         on_select="rerun", selection_mode="single-row", key=key)

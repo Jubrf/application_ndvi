@@ -119,7 +119,10 @@ def _fiche(ctx, res):
                 def _lab(r):
                     v = r.NDVI if r.Retenue == "Oui" else getattr(r, "NDVI_brut", None)
                     txt = f"{r.Date:%d/%m/%Y} — NDVI {fmt(v).replace('.', ',')}"
-                    return txt + (" · retenue" if r.Retenue == "Oui" else f" · écartée ({r.Motif})")
+                    if r.Retenue == "Oui":
+                        note = r.Motif if isinstance(r.Motif, str) and r.Motif else None
+                        return txt + " · retenue" + (f" ({note.lower()})" if note else "")
+                    return txt + f" · écartée ({r.Motif})"
 
                 kept_idx = [i for i, r in enumerate(opts) if r.Retenue == "Oui"]
                 r_sel = st.selectbox("Date", opts, index=kept_idx[-1] if kept_idx else len(opts) - 1,

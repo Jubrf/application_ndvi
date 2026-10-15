@@ -2,9 +2,12 @@
 Analyse multi-temporelle par parcelle (Python pur, sans Earth Engine).
 
 Chaîne de traitement d'une parcelle :
-  1. Sélection des mesures : écartées si statut non OK, poids de fiabilité
-     sous le minimum, ou chute isolée (valeur nettement sous ses voisines
-     avant ET après, signe d'un résidu de nuage).
+  1. Sélection des mesures : écartées si statut non OK ou poids de fiabilité
+     sous le minimum. Une valeur nettement sous ses voisines avant ET après n'est
+     écartée que si un nuage est probable (v4.3) : parcelle en partie masquée, score de
+     clarté faible, ou nuages sur le secteur ce jour-là. Plusieurs mesures basses
+     consécutives (fauche puis repousse) sont gardées si au moins une est sur une image
+     propre ; une chute seule sur une image propre est gardée et signalée.
   2. Lissage : moyenne pondérée à noyau gaussien sur une grille journalière
      (poids = fiabilité × proximité dans le temps). Deux passes supplémentaires
      réduisent le poids des points situés sous la courbe : les nuages ne font
@@ -17,10 +20,14 @@ Chaîne de traitement d'une parcelle :
   5. Lecture des mesures sur parcelle peu verte (levée, résidus, sol nu) selon le NDVI,
      le NDTI et l'état du sol (météo + infrarouge moyen) : voir core/soil_reading.py.
 """
+import math
+from collections import defaultdict
+
 import numpy as np
 import pandas as pd
 
 from ndvi_app.config import PHASE_BIEN, PHASE_NU, PHASE_PEU, PHASES, STATUS_OK  # noqa: F401 (réexportés)
+from ndvi_app.config import STATUS_CLOUD
 from ndvi_app.core import soil_reading as soil
 
 DEFAULT_SETTINGS = {
@@ -37,6 +44,16 @@ DEFAULT_SETTINGS = {
 MOTIF_STATUS = "Statut : {}"
 MOTIF_WEIGHT = "Poids < {:.2f}"
 MOTIF_DIP = "Chute isolée (nuage probable)"
+MOTIF_DIP_SERIES = "Baisse sur plusieurs dates nuageuses"
+NOTE_DIP_KEPT = "Chute ponctuelle sans nuage détecté (gardée)"   # mesure retenue, signalée
+
+# Signes de nuage pour une mesure en baisse (v4.3)
+CLOUD_MIN_CLEAR_PCT = 99.5    # parcelle en partie masquée : moins de 100 % de pixels clairs
+CLOUD_MIN_SCORE = 0.75        # score de clarté Cloud Score+ moyen des pixels gardés
+SECTOR_RADIUS_KM = 2.0        # voisines : parcelles à moins de 2 km…
+SECTOR_MIN_NEIGHBOURS = 5     # …au moins 5 avec une mesure ce jour-là, sinon repli sur la journée
+SECTOR_SHARE = 0.5            # nuage sur le secteur : la moitié des voisines masquées ou en baisse
+DAY_SHARE = 0.30              # repli : 30 % des parcelles du jour en partie masquées
 
 
 def phase_of(value, low, high):
@@ -52,11 +69,8 @@ def phase_of(value, low, high):
 # ------------------------------------------------------------
 # 1. Sélection des mesures
 # ------------------------------------------------------------
-def select_measures(sub, settings, status_ok=STATUS_OK):
-    """
-    sub : lignes d'une parcelle (colonnes Date datetime64, NDVI, Poids, Statut), triées par date.
-    Retourne (retenue: array bool, motif: list[str|None]).
-    """
+def _status_selection(sub, settings, status_ok=STATUS_OK):
+    """Mesures exploitables (statut OK, NDVI présent, poids suffisant) et motifs d'exclusion."""
     n = len(sub)
     retained = np.zeros(n, dtype=bool)
     motif = [None] * n
@@ -67,20 +81,120 @@ def select_measures(sub, settings, status_ok=STATUS_OK):
             motif[i] = MOTIF_WEIGHT.format(settings["min_weight"])
         else:
             retained[i] = True
+    return retained, motif
 
-    # Chute isolée : comparée aux mesures retenues de part et d'autre (une seule passe)
+
+def low_points(sub, base, settings):
+    """Mesures nettement sous les mesures exploitables de part et d'autre (fenêtre de N jours) :
+    candidates à l'exclusion (nuage) ou vraie baisse (fauche, récolte). Tableau booléen."""
     days = (sub["Date"] - sub["Date"].min()).dt.days.to_numpy()
     vals = sub["NDVI"].to_numpy(dtype=float)
     win, thr = settings["dip_window_days"], settings["dip_threshold"]
-    base = retained.copy()
+    low = np.zeros(len(sub), dtype=bool)
     for i in np.flatnonzero(base):
         before = base & (days < days[i]) & (days >= days[i] - win)
         after = base & (days > days[i]) & (days <= days[i] + win)
         if before.any() and after.any():
-            if vals[i] < vals[before].max() - thr and vals[i] < vals[after].max() - thr:
-                retained[i] = False
-                motif[i] = MOTIF_DIP
+            low[i] = vals[i] < vals[before].max() - thr and vals[i] < vals[after].max() - thr
+    return low
+
+
+def _num(sub, col):
+    return (pd.to_numeric(sub[col], errors="coerce").to_numpy(dtype=float) if col in sub
+            else np.full(len(sub), np.nan))
+
+
+def select_measures(sub, settings, status_ok=STATUS_OK, sector_cloud=None):
+    """
+    sub : lignes d'une parcelle (colonnes Date datetime64, NDVI, Poids, Statut, et si présents
+          Clair_pct, Score_clarte), triées par date.
+    sector_cloud : {Date: bool} nuages probables sur le secteur ce jour-là (voir sector_cloudiness).
+    Retourne (retenue: array bool, motif: list[str|None]).
+
+    Mesure basse (sous ses voisines avant ET après) :
+      - plusieurs mesures basses consécutives : gardées (fauche, récolte puis repousse), sauf si
+        toutes portent un signe de nuage ;
+      - mesure basse seule : écartée si signe de nuage, sinon gardée et signalée.
+    Signe de nuage : parcelle en partie masquée, score de clarté < CLOUD_MIN_SCORE, ou nuages
+    sur le secteur ce jour-là.
+    """
+    retained, motif = _status_selection(sub, settings, status_ok)
+    base = retained.copy()
+    low = low_points(sub, base, settings)
+    if not low.any():
+        return retained, motif
+    clear, score = _num(sub, "Clair_pct"), _num(sub, "Score_clarte")
+    sector_cloud = sector_cloud or {}
+    cloud = np.array([bool(low[i] and ((clear[i] < CLOUD_MIN_CLEAR_PCT) or (score[i] < CLOUD_MIN_SCORE)
+                                       or sector_cloud.get(d, False)))
+                      for i, d in enumerate(sub["Date"])])
+    # séries de mesures basses consécutives (parmi les mesures exploitables)
+    runs, cur = [], []
+    for i in np.flatnonzero(base):
+        if low[i]:
+            cur.append(i)
+        else:
+            if cur:
+                runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+    for run in runs:
+        if len(run) >= 2:
+            if cloud[run].all():
+                for i in run:
+                    retained[i] = False
+                    motif[i] = MOTIF_DIP_SERIES
+        elif cloud[run[0]]:
+            retained[run[0]] = False
+            motif[run[0]] = MOTIF_DIP
+        else:
+            motif[run[0]] = NOTE_DIP_KEPT
     return retained, motif
+
+
+def _km(p, q):
+    """Distance approchée (km) entre deux points (lon, lat) proches."""
+    k = 111.32 * math.cos(math.radians((p[1] + q[1]) / 2))
+    return math.hypot((p[0] - q[0]) * k, (p[1] - q[1]) * 110.57)
+
+
+def sector_cloudiness(df, settings, positions=None, status_ok=STATUS_OK):
+    """
+    Nuages probables sur le secteur, pour chaque mesure basse : {(ID, Date): bool}.
+    Avec au moins SECTOR_MIN_NEIGHBOURS voisines (positions {ID: (lon, lat)}, rayon
+    SECTOR_RADIUS_KM) ayant une mesure ce jour-là : la moitié ou plus sont masquées ou en baisse.
+    Sinon (pas de positions ou trop peu de voisines) : DAY_SHARE des parcelles du jour en partie
+    masquées. Une fauche ne touche que les parcelles fauchées ; un nuage, tout le secteur.
+    """
+    affected = defaultdict(dict)     # Date → {ID: masquée ou en baisse}
+    masked_day = defaultdict(list)   # Date → [masquée]
+    lows = []
+    for pid, sub in df.groupby("ID", sort=False):
+        sub = sub.sort_values("Date").reset_index(drop=True)
+        base, _ = _status_selection(sub, settings, status_ok)
+        low = low_points(sub, base, settings)
+        clear = _num(sub, "Clair_pct")
+        for i, (d, st) in enumerate(zip(sub["Date"], sub["Statut"])):
+            if st not in (status_ok, STATUS_CLOUD):
+                continue                      # hors image, géométrie, trop peu de pixels
+            masked = st == STATUS_CLOUD or clear[i] < CLOUD_MIN_CLEAR_PCT
+            affected[d][pid] = bool(masked or low[i])
+            masked_day[d].append(bool(masked))
+            if low[i]:
+                lows.append((pid, d))
+    out = {}
+    positions = positions or {}
+    for pid, d in lows:
+        here = positions.get(pid)
+        neigh = ([q for q in affected[d] if q != pid and q in positions
+                  and _km(here, positions[q]) <= SECTOR_RADIUS_KM] if here else [])
+        if len(neigh) >= SECTOR_MIN_NEIGHBOURS:
+            out[(pid, d)] = sum(affected[d][q] for q in neigh) / len(neigh) >= SECTOR_SHARE
+        else:
+            m = masked_day[d]
+            out[(pid, d)] = bool(m) and sum(m) / len(m) >= DAY_SHARE
+    return out
 
 
 # ------------------------------------------------------------
@@ -214,14 +328,16 @@ def _grey_zone(curve, zone):
     return {"A_verifier": "Oui" if zone[0] <= v <= zone[1] else "Non"}
 
 
-def analyse_parcel(sub, period_start, period_end, low, high, settings, weather_days=None):
+def analyse_parcel(sub, period_start, period_end, low, high, settings, weather_days=None,
+                   sector_cloud=None):
     """
     sub : lignes d'une parcelle (Date datetime64, NDVI, Poids, Statut).
     weather_days : météo journalière (gel avant une baisse rapide) ou None.
+    sector_cloud : {Date: bool} nuages sur le secteur pour les mesures basses (sector_cloudiness).
     Retourne (detail: DataFrame, courbe: DataFrame, synthese: dict).
     """
     sub = sub.sort_values("Date").reset_index(drop=True)
-    retained, motif = select_measures(sub, settings)
+    retained, motif = select_measures(sub, settings, sector_cloud=sector_cloud)
     sub = sub.assign(Retenue=np.where(retained, "Oui", "Non"), Motif=motif)
 
     kept = sub[retained]
@@ -277,19 +393,25 @@ def analyse_parcel(sub, period_start, period_end, low, high, settings, weather_d
 
 
 def analyse_all(df_long, period_start, period_end, low, high, settings=None,
-                weather_days=None):
+                weather_days=None, positions=None):
     """
     df_long : une ligne par parcelle × date (sortie de build_rows).
     weather_days : météo journalière ou None.
+    positions : {ID: (lon, lat)} des parcelles (geometry.centroids), pour repérer les nuages
+                sur le secteur autour d'une mesure basse ; None → repli sur la journée entière.
     Retourne (synthese, detail, courbes) — trois DataFrames.
     """
     settings = {**DEFAULT_SETTINGS, **(settings or {})}
     df = df_long.copy()
     df["Date"] = pd.to_datetime(df["Date"])
+    sector = sector_cloudiness(df, settings, positions)
+    by_parcel = defaultdict(dict)
+    for (pid, d), v in sector.items():
+        by_parcel[pid][d] = v
     synth_rows, details, curves = [], [], []
     for pid, sub in df.groupby("ID", sort=False):
         det, curve, synth = analyse_parcel(sub, period_start, period_end, low, high, settings,
-                                           weather_days)
+                                           weather_days, sector_cloud=by_parcel.get(pid))
         details.append(det)
         curves.append(curve.assign(ID=pid))
         synth_rows.append({"ID": pid, "Surface_ha": sub["Surface_ha"].iloc[0]

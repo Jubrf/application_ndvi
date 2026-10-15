@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import pandas as pd
 import streamlit as st
 
+from ndvi_app.core.geometry import centroids
 from ndvi_app.core.quality import build_rows
 from ndvi_app.core.timeseries import analyse_all
 from ndvi_app.ui import weather
@@ -56,7 +57,8 @@ def _interpret(token, ids, skey, p_start, p_end, wkey, _geoinfo, _raws, _wdays):
                            weather_days=_wdays)
     df_long = pd.DataFrame(rows)
     synthese, detail, courbes = analyse_all(df_long, p_start, p_end, low, high, dict(ts_items),
-                                            weather_days=_wdays)
+                                            weather_days=_wdays,
+                                            positions=centroids(list(ids), _geoinfo))
     return df_long, synthese, detail, courbes
 
 
