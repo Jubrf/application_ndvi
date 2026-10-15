@@ -1,8 +1,6 @@
 """
 Colonnes des tableaux affichés et exportés, et leurs définitions (infobulles, onglet Lexique).
 """
-import streamlit as st
-
 from ndvi_app.core import soil_reading as soil
 from ndvi_app.ui.formatting import fr_decimal as _t
 
@@ -143,5 +141,6 @@ def column_help(low, high, grey=None):
 
 def column_config(df, help_by_column):
     """Infobulles des en-têtes de colonnes pour st.dataframe."""
+    import streamlit as st
     return {c: st.column_config.Column(help=h, width="large" if c in WIDE_COLS else None)
             for c, h in help_by_column.items() if c in df.columns}

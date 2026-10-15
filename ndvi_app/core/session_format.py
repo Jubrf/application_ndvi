@@ -59,6 +59,21 @@ def build_session_zip(meta, features, ids, geoinfo, raws):
     return buf.getvalue()
 
 
+def saved_settings(s, calc_params, geoms_key):
+    """Bloc « settings » du fichier : réglages d'interprétation s (dict low, high, min_clear,
+    min_pixels, min_weight, smooth_days, grey facultatif) et paramètres de calcul verrouillés."""
+    return {
+        "thresholds": [s["low"], s["high"]],
+        "buffer_m": int(geoms_key.rsplit("|", 1)[1]),
+        "cs_threshold": calc_params["cs_threshold"],
+        "cloud_buffer_m": calc_params["cloud_buffer_m"],
+        "iqr_k": calc_params["iqr_k"],
+        "min_clear": int(s["min_clear"]), "min_pixels": int(s["min_pixels"]),
+        "min_weight": float(s["min_weight"]), "smooth_days": int(s["smooth_days"]),
+        **({"grey_zone": list(s["grey"])} if s.get("grey") else {}),
+    }
+
+
 def read_session_zip(data):
     """Retourne (session: dict, parcelles_geojson: bytes). Lève ValueError si invalide."""
     try:

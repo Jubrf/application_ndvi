@@ -1,0 +1,12 @@
+# Dépendances du service web v5 (API + interface React), installées par Render (render.yaml).
+# Étape 1 : pas d'Earth Engine ni de Streamlit.
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart>=0.0.9
+pandas
+numpy
+shapely>=2.0
+pyproj
+pyshp
+openpyxl
+folium

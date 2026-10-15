@@ -3,6 +3,9 @@
 Application Streamlit + Google Earth Engine pour suivre la couverture des sols
 à la parcelle à partir du NDVI Sentinel-2.
 
+> Branche `v5-maquette-react` : nouvelle interface React servie par une API Python (même
+> moteur de calcul), voir [docs/V5_REACT.md](docs/V5_REACT.md).
+
 ## Interface (v4)
 
 Menu en haut de page, barre latérale de réglages commune à toutes les pages :

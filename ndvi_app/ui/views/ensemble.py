@@ -14,7 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from ndvi_app.config import COLOR_MAP, PHASE_BIEN, PHASE_NU, PHASE_PEU
-from ndvi_app.ui.banner import pivot_all, pivot_for
+from ndvi_app.exports.workbook import pivot_all, pivot_for
 from ndvi_app.ui.charts import phase_evolution_uri
 from ndvi_app.ui.columns import SYNTH_COLS, column_config, pick
 from ndvi_app.ui.formatting import fr_decimal

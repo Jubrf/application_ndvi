@@ -1,0 +1,23 @@
+# Service Render de la version React (v5) : API Python + interface (dossier web/).
+# Créé une fois via « New → Blueprint » ; chaque push sur la branche redéploie.
+# Secrets (sync: false) : saisis dans le tableau de bord Render, jamais dans le dépôt.
+services:
+  - type: web
+    name: ndvi-parcellaire
+    runtime: python
+    plan: free
+    region: frankfurt
+    branch: v5-maquette-react
+    autoDeployTrigger: commit
+    buildCommand: pip install -r api/requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: APP_PASSWORD
+        sync: false
+      - key: GEE_SERVICE_ACCOUNT
+        sync: false
+      - key: GEE_PRIVATE_KEY
+        sync: false

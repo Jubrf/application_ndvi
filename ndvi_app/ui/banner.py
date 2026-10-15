@@ -6,56 +6,30 @@ import pandas as pd
 import streamlit as st
 
 from ndvi_app.config import APP_VERSION
-from ndvi_app.core.session_format import build_session_zip
-from ndvi_app.exports.excel import XLSX_MIME, to_excel
-from ndvi_app.exports.excel_charts import MAX_CHARTS, add_parcel_charts
+from ndvi_app.core.session_format import build_session_zip, saved_settings
+from ndvi_app.exports import workbook
+from ndvi_app.exports.excel import XLSX_MIME
+from ndvi_app.exports.excel_charts import MAX_CHARTS
 from ndvi_app.ui import analysis, weather
 from ndvi_app.ui.columns import DETAIL_COLS, SYNTH_COLS, TECH_COLS, pick
 from ndvi_app.ui.formatting import fr_decimal
 from ndvi_app.ui.state import session_lock, stale_warning
 
 
-def pivot_all(detail):
-    """NDVI des mesures retenues : une ligne par parcelle, une colonne par date."""
-    return (detail[detail["Retenue"] == "Oui"]
-            .assign(Date=lambda x: x["Date"].dt.strftime("%Y-%m-%d"))
-            .pivot_table(index="ID", columns="Date", values="NDVI", aggfunc="first"))
-
-
-def pivot_for(pivot, ids):
-    """Tableau NDVI par parcelle (lignes, dans l'ordre de ids) et par date (colonnes)."""
-    out = pivot.reindex(ids).reset_index()
-    out.columns.name = None
-    return out
-
-
 @st.cache_data(max_entries=4, show_spinner="Préparation du fichier Excel…")
 def weather_table(days, p_start, p_end):
     """Météo journalière de la période (onglet Excel « Météo »)."""
-    rows = [{"Date": pd.Timestamp(d).date(), "Pluie_mm": v[0], "Humidite_sol": v[1],
-             "Tmin_C": v[2]} for d, v in sorted((days or {}).items())
-            if str(p_start) <= d <= str(p_end)]
-    return pd.DataFrame(rows, columns=["Date", "Pluie_mm", "Humidite_sol", "Tmin_C"])
+    return workbook.weather_table(days, p_start, p_end)
 
 
 def _excel_bytes(token, ids, skey, wkey, _res, _column_help, _wdays):
     res = _res
     low, high = skey[2], skey[3]
-    synth_view = pick(res.synthese, SYNTH_COLS)
-    detail_view = pick(res.detail.assign(Date=res.detail["Date"].dt.date), DETAIL_COLS)
-    courbes_view = res.courbes.assign(Date=res.courbes["Date"].dt.date)[
-        ["ID", "Date", "NDVI_lisse", "Phase", "Incertain"]]
-    sheets = {"Synthèse": synth_view,
-              "NDVI par date": pivot_for(pivot_all(res.detail), list(res.synthese["ID"])),
-              "Détail": detail_view, "Courbes lissées": courbes_view,
-              "Technique": pick(res.df_long, TECH_COLS)}
-    if _wdays:
-        sheets["Météo"] = weather_table(_wdays, res.p_start, res.p_end)
-    return to_excel(
-        sheets,
-        _column_help,
-        extra=lambda book: add_parcel_charts(book, res.synthese, res.detail, res.courbes,
-                                             res.p_start, res.p_end, low, high))
+    return workbook.results_workbook(
+        res.df_long, res.synthese, res.detail, res.courbes, res.p_start, res.p_end, low, high,
+        _column_help, pick, {"synth": SYNTH_COLS, "detail": DETAIL_COLS, "tech": TECH_COLS},
+        weather_days=_wdays,
+        weather_df=weather_table(_wdays, res.p_start, res.p_end) if _wdays else None)
 
 
 @st.cache_data(max_entries=4, show_spinner="Préparation du fichier d'enregistrement…")
@@ -68,16 +42,7 @@ def _session_zip(token, ids, settings_t, id_field, source_name, file_hash, wkey,
             "app_version": APP_VERSION, "source_file": source_name, "file_hash": file_hash,
             "id_field": id_field,
             "geoms_key": _calc["geoms_key"], "params": calc_params,
-            "settings": {
-                "thresholds": [s["low"], s["high"]],
-                "buffer_m": int(_calc["geoms_key"].rsplit("|", 1)[1]),
-                "cs_threshold": calc_params["cs_threshold"],
-                "cloud_buffer_m": calc_params["cloud_buffer_m"],
-                "iqr_k": calc_params["iqr_k"],
-                "min_clear": int(s["min_clear"]), "min_pixels": int(s["min_pixels"]),
-                "min_weight": float(s["min_weight"]), "smooth_days": int(s["smooth_days"]),
-                **({"grey_zone": list(s["grey"])} if s.get("grey") else {}),
-            },
+            "settings": saved_settings(s, calc_params, _calc["geoms_key"]),
             "period": list(_period),
             "errors": _errors,
             # météo enregistrée seulement si la requête a abouti (sinon nouvel essai à l'ouverture)
