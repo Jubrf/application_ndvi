@@ -245,7 +245,7 @@ function ParcelChart({ p, settings, day, setDay, W = 400 }) {
     </svg>
     ${hov != null && html`<div class="ctip" style=${{ left: (X(hov) / W) * 100 + "%" }}>
       <b>${fmtDay(hov)}</b><br/>NDVI lissé ${fr(curveAt(p, hov))}
-      ${hm && html`<br/>Mesure du ${fmtShort(hm[0])} : ${fr(hm[1])} ${hm[2] ? "(retenue)" : "(écartée" + (hm[6] ? " : " + D.motifs[hm[6] - 1].toLowerCase() : "") + ")"}`}
+      ${hm && html`<br/>Mesure du ${fmtShort(hm[0])} : ${fr(hm[1])} ${hm[2] ? "(retenue" + (hm[6] ? " : " + D.motifs[hm[6] - 1].toLowerCase() : "") + ")" : "(écartée" + (hm[6] ? " : " + D.motifs[hm[6] - 1].toLowerCase() : "") + ")"}`}
       <br/><span class="muted">Cliquer pour placer le curseur ici</span></div>`}
   </div>`;
 }

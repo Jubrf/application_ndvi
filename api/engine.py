@@ -14,6 +14,7 @@ import pandas as pd
 from shapely.geometry import shape
 
 from ndvi_app.config import APP_VERSION, COLOR_INVALID, DEFAULT_GREY_ZONE
+from ndvi_app.core.geometry import centroids
 from ndvi_app.core.quality import build_rows, colorize
 from ndvi_app.core.session_format import build_session_zip, read_session_zip, saved_settings
 from ndvi_app.core.timeseries import analyse_all
@@ -44,6 +45,7 @@ class Analysis:
         self.p_start, self.p_end = session["period"]
         weather = session.get("weather") or {}
         self.weather_days = weather.get("days") or None
+        self.positions = centroids(self.ids, session["geoinfo"])
         self._cache = OrderedDict()
         self._lock = threading.Lock()
 
@@ -78,7 +80,8 @@ class Analysis:
         if s.get("grey"):
             ts["grey_zone"] = tuple(s["grey"])
         synthese, detail, courbes = analyse_all(df_long, self.p_start, self.p_end, s["low"],
-                                                s["high"], ts, weather_days=self.weather_days)
+                                                s["high"], ts, weather_days=self.weather_days,
+                                                positions=self.positions)
         out = (df_long, synthese, detail, courbes)
         with self._lock:
             self._cache[key] = out
