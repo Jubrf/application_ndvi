@@ -170,7 +170,7 @@ function WeatherBlock({ day, W }) {
       ${ACTIONS.gee.ok && html`<button class="tool small" disabled=${busy} onClick=${refresh} title="Nouvelle requête : derniers jours publiés depuis la précédente">${busy ? "Actualisation…" : "Actualiser la météo"}</button>`}</div>
     ${D.weather ? html`<${WeatherCharts} day=${day} W=${W} />
       <p class="cap">Barres : pluie journalière (mm). ▼ gel (≤ −2 °C). Trait brun : humidité du sol entre 0 et 7 cm (m³/m³) ;
-        tirets : 0,32 (ressuyé) et 0,40 (proche saturation). ${last >= 0 && last < D.nDays - 1 ? `Météo publiée jusqu'au ${fmtDay(last)} (quelques jours de retard).` : ""} Survol : valeurs du jour.</p>`
+        tirets : 0,32 (ressuyé) et 0,40 (proche saturation). ${last >= 0 && last < D.nDays - 1 ? `Météo publiée jusqu'au ${fmtDay(last)} (quelques jours de retard).` : ""} Valeurs du jour survolé sous les graphiques (sinon celles du repère bleu).</p>`
       : html`<p class="cap">${info.weather_error ? "Météo ERA5-Land indisponible lors du calcul : " : "Météo absente de ce fichier : "}la lecture du sol se fait sans pluie ni humidité.${ACTIONS.gee.ok ? " « Actualiser la météo » pour la récupérer." : ""}</p>`}
   </div>`;
 }
@@ -228,11 +228,11 @@ function Detail({ s, sel, setSel, ids, showMap, setShowMap, visible }) {
         <h2>Évolution du NDVI</h2>
         <p class="cap">${p.chrono}</p>
         <${ParcelChart} p=${p} settings=${s} day=${day} setDay=${setDay} W=${W} />
-        <p class="cap">● mesure retenue, ○ mesure écartée, pointillé : courbe interpolée à plus de 15 jours de toute mesure, tirets : seuils. Survol : valeurs du jour et de la mesure ; clic : place le repère bleu${showMap ? " (la carte suit)" : ""}.</p>
+        <p class="cap">● mesure retenue, ○ mesure écartée, pointillé : courbe interpolée à plus de 15 jours de toute mesure, tirets : seuils. Valeurs du jour survolé et de la mesure la plus proche sous la courbe (sinon celles du repère bleu) ; clic : place le repère bleu${showMap ? " (la carte suit)" : ""}.</p>
         <${WeatherBlock} day=${day} W=${W} />
         <h3>NDTI — résidus de culture (expérimental)</h3>
         <${NdtiChart} p=${p} s=${s} day=${day} W=${W} />
-        <p class="cap">Points pleins quand la parcelle est peu verte (NDVI ${"<"} ${fr(s.low)}), seuls interprétables ; cercle orange : sol humide ou à vérifier (NDTI non lu) ; cercle gris : parcelle verte. Survol : état du sol et lecture. Lignes : repères indicatifs, à calibrer.</p>
+        <p class="cap">Points pleins quand la parcelle est peu verte (NDVI ${"<"} ${fr(s.low)}), seuls interprétables ; cercle orange : sol humide ou à vérifier (NDTI non lu) ; cercle gris : parcelle verte. Survol d’un point : NDTI, état du sol et lecture sous le graphique. Lignes : repères indicatifs, à calibrer.</p>
       </div>
       <div class="col">
         <${ImageBlock} p=${p} />

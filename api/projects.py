@@ -275,7 +275,8 @@ def run_new(job, ps, period, dates, params_t, s):
 
 
 def run_extend(job, a, period, dates, s):
-    """Compléter une analyse : seules les nouvelles dates, avec ses paramètres et ses contours."""
+    """Compléter une analyse : seules les nouvelles dates, avec ses paramètres et ses contours.
+    period : période après ajout (enveloppe de l'analyse et des mois cherchés)."""
     gee_conn.ensure()
     raws, errors = _compute_dates(job, dates, a.geoms_key, a.params_t,
                                   [g["geojson"] for g in a.geoinfo], a.region)

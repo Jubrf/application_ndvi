@@ -253,11 +253,13 @@ def start_job(req: RunRequest):
     s = req.settings.as_dict() if req.settings else projects.default_interpretation()
     p0, p1 = datetime.date.fromisoformat(req.start), datetime.date.fromisoformat(req.end)
     if req.source.type == "analysis":
-        if not (p0 <= src.p_start and src.p_end <= p1):
-            raise HTTPException(422, "pour compléter l'analyse, la période doit contenir celle "
-                                     "déjà analysée.")
+        # Compléter : mois cherchés librement ; la période devient l'enveloppe des deux
+        done = {d for d, _ in src.session["raws"]}
+        if any(d in done for d in req.dates):
+            raise HTTPException(422, "certaines dates sont déjà dans l'analyse.")
+        period = (min(p0, src.p_start), max(p1, src.p_end))
         job = jobs.start("compléter", len(req.dates),
-                         lambda j: projects.run_extend(j, src, (p0, p1), req.dates, s))
+                         lambda j: projects.run_extend(j, src, period, req.dates, s))
     else:
         job = jobs.start("nouvelle", len(req.dates),
                          lambda j: projects.run_new(j, src, (p0, p1), req.dates, params_t, s))

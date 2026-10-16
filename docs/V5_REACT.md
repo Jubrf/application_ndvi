@@ -32,10 +32,13 @@ cartes, analyse à une date) sont identiques à ceux de Streamlit (banc de tests
 - Projet : état de la connexion Earth Engine ; ouvrir une analyse enregistrée ; nouvelle
   analyse (parcelles, identifiant, paramètres de calcul, période, dates avec présélection
   par ciel clair, calcul en tâche de fond avec progression et arrêt) ; compléter l'analyse
-  ouverte (période agrandie, paramètres verrouillés) ; dates analysées ; fermer l'analyse.
+  ouverte (un ou plusieurs mois au choix, avant, pendant ou après la période : seules les
+  dates pas encore analysées sont proposées ; paramètres verrouillés) ; dates analysées ;
+  fermer l'analyse.
 - Revue des parcelles, Tableaux, Carte : interprétation par le moteur, réglages dans le
   panneau « Réglages » ; fiche avec courbe, météo (pluie, gel, humidité du sol), NDTI,
   vignette Sentinel-2 (naturelles / infrarouge), aide à la lecture, mesures.
+  Valeurs du jour survolé affichées sous chaque graphique (sinon celles du repère bleu).
 - Analyse à une date : image d'une date sur l'analyse ouverte ou les parcelles chargées.
 - Exports : Excel, Enregistrer (.zip), cartes KML et HTML.
 - Météo absente d'un fichier : récupérée à l'ouverture (bouton « Actualiser la météo »).

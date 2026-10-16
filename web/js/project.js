@@ -190,24 +190,31 @@ function NewAnalysis({ pset, setPset, psetCall, minClear, onResult, hasOpen }) {
   </div>`;
 }
 
-/* Compléter l'analyse ouverte : agrandir la période, seules les nouvelles dates sont calculées */
+/* Compléter l'analyse ouverte : recherche sur le ou les mois choisis, seules les dates pas encore
+   analysées sont proposées ; la période de l'analyse devient l'enveloppe des deux. */
+const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
 function ExtendBox({ info, s, onResult }) {
-  const [months, setMonths] = useState([monthOf(info.start), monthOf(info.end)]);
+  const now = new Date();
+  const [months, setMonths] = useState([monthOf(info.end), [now.getFullYear(), now.getMonth() + 1]]);
   const [found, setFound] = useState(null);
   const [sel, setSel] = useState(new Set());
   const [presel, setPresel] = useState(20);
   const [job, setJob] = useState(null);
   const [searching, setSearching] = useState(false);
   const [msg, setMsg] = useState(null);
-  const period = periodOf(months[0], months[1]);
-  const contains = period[0] <= info.start && info.end <= period[1];
-  const query = period.join("|");
+  const win = periodOf(months[0], months[1]);
+  const valid = win[0] <= win[1];
+  const after = [win[0] < info.start ? win[0] : info.start, win[1] > info.end ? win[1] : info.end];
+  const gap = valid && (win[0] > addDays(info.end, 1) ? [addDays(info.end, 1), addDays(win[0], -1)]
+    : win[1] < addDays(info.start, -1) ? [addDays(win[1], 1), addDays(info.start, -1)] : null);
+  const query = win.join("|");
   const fresh = found && found.query === query;
   const search = async () => {
     setSearching(true); setMsg(null);
     try {
-      const r = await ACTIONS.withKey((k) => postJSON("/api/dates", { source: { type: "analysis", key: k }, start: period[0], end: period[1], min_clear: s.min_clear }));
+      const r = await ACTIONS.withKey((k) => postJSON("/api/dates", { source: { type: "analysis", key: k }, start: win[0], end: win[1], min_clear: s.min_clear }));
       const ext = (await r.json()).extension;
+      ext.doneIn = ext.done.filter((d) => d >= win[0] && d <= win[1]);
       setFound({ query, ext });
       setSel(new Set(ext.new.filter((d) => d.clear_pct >= presel).map((d) => d.date)));
     } catch (e) { setMsg(["error", "Erreur Earth Engine (recherche des dates) : " + e.message]); }
@@ -217,11 +224,12 @@ function ExtendBox({ info, s, onResult }) {
     const chosen = [...sel].sort();
     const nb = chosen.filter((d) => d < info.start).length, na = chosen.filter((d) => d > info.end).length;
     const txt = `Compléter l'analyse ?\n\n- ${chosen.length} date(s) ajoutée(s) : ${nb} avant, ${na} après, ${chosen.length - nb - na} pendant la période existante\n`
-      + `- Période après ajout : ${fmtIso(period[0])} → ${fmtIso(period[1])}\n- Calcul avec les paramètres de l'analyse : buffer ${info.locked.buffer_m} m, Cloud Score+ ${fr(info.locked.cs_threshold)}, marge ${info.locked.cloud_buffer_m} m\n`
-      + `- Durée estimée : environ ${Math.max(5, 3 * chosen.length)} s\n\nLes ${found.ext.done.length} date(s) déjà analysée(s) ne sont pas recalculées. Pense à enregistrer l'analyse ensuite.`;
+      + `- Période après ajout : ${fmtIso(after[0])} → ${fmtIso(after[1])}${gap ? ` (du ${fmtIso(gap[0])} au ${fmtIso(gap[1])} : aucune date analysée, courbe interpolée)` : ""}\n`
+      + `- Calcul avec les paramètres de l'analyse : buffer ${info.locked.buffer_m} m, Cloud Score+ ${fr(info.locked.cs_threshold)}, marge ${info.locked.cloud_buffer_m} m\n`
+      + `- Durée estimée : environ ${Math.max(5, 3 * chosen.length)} s\n\nLes ${info.n_dates} date(s) déjà analysée(s) ne sont pas recalculées. Pense à enregistrer l'analyse ensuite.`;
     if (!window.confirm(txt)) return;
     try {
-      const r = await ACTIONS.withKey((k) => postJSON("/api/jobs", { source: { type: "analysis", key: k }, start: period[0], end: period[1], dates: chosen, settings: serverSettings(s) }));
+      const r = await ACTIONS.withKey((k) => postJSON("/api/jobs", { source: { type: "analysis", key: k }, start: win[0], end: win[1], dates: chosen, settings: serverSettings(s) }));
       setJob(await r.json());
     } catch (e) { setMsg(["error", "Calcul impossible : " + e.message]); }
   };
@@ -229,20 +237,22 @@ function ExtendBox({ info, s, onResult }) {
   const nb = ext ? ext.new.filter((d) => d.date < info.start).length : 0, na = ext ? ext.new.filter((d) => d.date > info.end).length : 0;
   return html`<div class="box wizard">
     <h2>Compléter l'analyse</h2>
-    <p class="cap">Agrandir la période : seules les dates pas encore analysées sont proposées et calculées, avec les paramètres et les contours de l'analyse ouverte.</p>
+    <p class="cap">Choisis le ou les mois où chercher des images : seules les dates pas encore dans l'analyse sont proposées et calculées, avec les paramètres et les contours de l'analyse ouverte. Analyse actuelle : du ${fmtIso(info.start)} au ${fmtIso(info.end)}, ${info.n_dates} dates.</p>
     <div class="lrow">
-      <${MonthPicker} label="Début" value=${months[0]} onChange=${(v) => setMonths([v, months[1]])} />
-      <${MonthPicker} label="Fin" value=${months[1]} onChange=${(v) => setMonths([months[0], v])} />
+      <${MonthPicker} label="Du mois" value=${months[0]} onChange=${(v) => setMonths([v, months[1]])} />
+      <${MonthPicker} label="au mois" value=${months[1]} onChange=${(v) => setMonths([months[0], v])} />
     </div>
-    ${!contains ? html`<p class="warnc">Pour compléter l'analyse, la période doit contenir celle déjà analysée (du ${fmtIso(info.start)} au ${fmtIso(info.end)}) : mois de début identique ou antérieur, mois de fin identique ou postérieur.</p>`
-      : html`<button class="tool" disabled=${searching || !!job || !ACTIONS.gee.ok} onClick=${search}>${searching ? "Recherche…" : "Rechercher les dates à ajouter"}</button>`}
-    ${ext && html`<p class="cap"><b>${ext.done.length}</b> date(s) déjà analysée(s) · <b>${ext.new.length}</b> disponible(s) non analysée(s) : ${nb} avant, ${ext.new.length - nb - na} pendant, ${na} après${ext.n_outside ? ` · ${ext.n_outside} autre(s) image(s) ne couvrant pas les parcelles, non proposée(s)` : ""}.</p>`}
+    ${!valid ? html`<p class="errc">Le premier mois doit précéder le second.</p>` : html`
+      <p class="cap">${`Recherche du ${fmtIso(win[0])} au ${fmtIso(win[1])}. Période de l'analyse après ajout : du ${fmtIso(after[0])} au ${fmtIso(after[1])}.`}</p>
+      ${gap && html`<p class="warnc">${`Du ${fmtIso(gap[0])} au ${fmtIso(gap[1])}, aucune date ne sera analysée : la courbe y sera interpolée (pointillé).`}</p>`}
+      <button class="tool" disabled=${searching || !!job || !ACTIONS.gee.ok} onClick=${search}>${searching ? "Recherche…" : "Rechercher les dates à ajouter"}</button>`}
+    ${ext && html`<p class="cap">${`Sur ces mois : ${ext.doneIn.length} date(s) déjà analysée(s) · ${ext.new.length} disponible(s) non analysée(s) : ${nb} avant, ${ext.new.length - nb - na} pendant, ${na} après la période existante${ext.n_outside ? ` · ${ext.n_outside} autre(s) image(s) ne couvrant pas les parcelles, non proposée(s)` : ""}.`}</p>`}
     ${ext && (ext.new.length ? html`<${DatePicker} list=${ext.new} sel=${sel} setSel=${setSel} presel=${presel} setPresel=${setPresel} minClear=${s.min_clear}
         presetLabel="Présélection des dates à ajouter : ciel clair minimum" />
       ${job ? html`<${JobRunner} job=${job} onDone=${(v) => { setJob(null); setFound(null); onResult(v); }}
           onFail=${(v) => { setJob(null); setMsg(["error", v.message || "Calcul arrêté."]); }} />`
         : html`<button class="primary" disabled=${!sel.size || !ACTIONS.gee.ok} onClick=${run}>Compléter l'analyse (${sel.size} date(s))</button>`}`
-      : html`<p class="cap">Toutes les dates disponibles sur cette période sont déjà analysées.</p>`)}
+      : html`<p class="cap">Toutes les dates disponibles sur ces mois sont déjà analysées.</p>`)}
     ${msg && html`<p class="errc">${msg[1]}</p>`}
   </div>`;
 }
