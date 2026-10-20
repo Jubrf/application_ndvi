@@ -18,7 +18,8 @@ SYNTH_COLS = ["ID", "Phase_fin", "NDVI_fin", "A_verifier", "Lecture_fin", "Etat_
               "Jours_sans_mesure_fin", "Surface_ha",
               # v5.3 : durée de couverture, en fin de tableau
               "Jours_couverts", "Part_couverte_pct", "Jours_couverts_incertains",
-              "Couverture_max_j", "Couverture_max_debut", "Couverture_max_fin"]
+              "Couverture_max_j", "Couverture_max_debut", "Couverture_max_fin",
+              "Plus_long_trou_debut", "Plus_long_trou_fin"]
 DETAIL_COLS = ["ID", "Date", "NDVI", "NDVI_lisse", "Phase", "Fiabilite", "Poids", "Retenue",
                "Motif", "NDTI", "Etat_sol", "Lecture", "Pluie_3j_mm", "Pluie_veille_mm",
                "Humidite_sol", "Tmin_7j_C", "Gel", "Statut", "Clair_pct"]
@@ -121,6 +122,10 @@ def column_help(low, high, grey=None, uncertain_days=15):
                             "hors dates où la parcelle n'était pas dans l'image.",
         "Plus_long_trou_j": "Plus long intervalle sans mesure retenue sur la période, bords compris (jours).",
         "Derniere_mesure": "Date de la dernière mesure retenue.",
+        "Plus_long_trou_debut": "Début du plus long trou : mesure retenue qui le précède, ou début de "
+                                "la période de l'analyse si le trou est avant la 1re mesure.",
+        "Plus_long_trou_fin": "Fin du plus long trou : mesure retenue qui le suit, ou fin de la "
+                              "période de l'analyse si le trou est après la dernière mesure.",
         "Jours_sans_mesure_fin": "Jours entre la dernière mesure retenue et la fin de la période.",
         # Détail temporel
         "NDVI_lisse": "Valeur de la courbe lissée à cette date.",

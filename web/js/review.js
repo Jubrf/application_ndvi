@@ -216,7 +216,9 @@ function Detail({ s, sel, setSel, ids, showMap, setShowMap, visible }) {
     <div class="metrics">
       <div><span>NDVI lissé en fin de période</span><b>${fr(p.ndvi_fin)}</b></div>
       <div><span>Mesures retenues</span><b>${p.n_ret} / ${D.dates.length}</b></div>
-      <div><span>Plus long trou sans mesure</span><b>${p.trou ?? "—"} j</b></div>
+      <div title=${H("Plus_long_trou_j")}><span>Plus long trou sans mesure</span><b>${p.trou ?? "—"} j</b>
+        ${p.trou_d[0] && html`<em>${`du ${isoFrShort(p.trou_d[0])} au ${isoFrShort(p.trou_d[1])}${
+          { "début": " · avant la 1re mesure (début de période)", "fin": " · après la dernière mesure (fin de période)", "aucune mesure": " · aucune mesure retenue" }[p.trou_d[2]] || ""}`}</em>`}</div>
       <div><span>Baisse rapide</span><b class="small">${!p.drops || p.drops === "—" ? "aucune" : p.drops}</b></div>
       <div title=${H("Jours_couverts")}><span>${`Sol couvert (NDVI lissé ≥ ${fr(s.low)})`}</span>
         <b>${p.cov[0] == null ? "—" : `${p.cov[0]} / ${spanDays()} j · ${p.cov[1]} %`}</b>

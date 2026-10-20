@@ -408,9 +408,12 @@ def analyse_parcel(sub, period_start, period_end, low, high, settings, weather_d
     kept_dates = list(kept["Date"])
     if kept_dates:
         bounds = [p0] + kept_dates + [p1]
-        max_gap = max((b - a).days for a, b in zip(bounds[:-1], bounds[1:]))
+        gaps = [(b - a).days for a, b in zip(bounds[:-1], bounds[1:])]
+        k = int(np.argmax(gaps))
+        max_gap, gap_dates = gaps[k], (bounds[k], bounds[k + 1])
+        gap_where = "début" if k == 0 else "fin" if k == len(gaps) - 1 else ""
     else:
-        max_gap = (p1 - p0).days
+        max_gap, gap_dates, gap_where = (p1 - p0).days, (p0, p1), "aucune mesure"
 
     eps = episodes(curve, low, high, settings["min_episode_days"])
     chrono = " → ".join(f"{lab} ({_fmt(a, with_year)}–{_fmt(b, with_year)})" for lab, a, b in eps)
@@ -424,6 +427,9 @@ def analyse_parcel(sub, period_start, period_end, low, high, settings, weather_d
         "Mesures_retenues": int(retained.sum()),
         "Mesures_ecartees": int(len(sub) - retained.sum() - n_hors),
         "Plus_long_trou_j": int(max_gap),
+        "Plus_long_trou_debut": gap_dates[0].date(),
+        "Plus_long_trou_fin": gap_dates[1].date(),
+        "Plus_long_trou_position": gap_where,
         "Confiance": confidence(int(retained.sum()), max_gap),
         "Derniere_mesure": kept_dates[-1].date() if kept_dates else None,
         "Jours_sans_mesure_fin": int((p1 - kept_dates[-1]).days) if kept_dates else None,

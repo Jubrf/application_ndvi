@@ -207,6 +207,8 @@ class Analysis:
                 "conf": _s(r.get("Confiance")), "lect_fin": _s(r.get("Lecture_fin")),
                 "etat_fin": _s(r.get("Etat_sol_fin")), "drops": _s(r.get("Baisses_rapides")),
                 "chrono": _s(r.get("Chronologie")), "trou": _i(r.get("Plus_long_trou_j")),
+                "trou_d": [_s(r.get("Plus_long_trou_debut")), _s(r.get("Plus_long_trou_fin")),
+                           _s(r.get("Plus_long_trou_position"))],
                 "n_ret": _i(r.get("Mesures_retenues")), "n_ecart": _i(r.get("Mesures_ecartees")),
                 "jsm": _i(r.get("Jours_sans_mesure_fin")), "last": _s(r.get("Derniere_mesure")),
                 # durée de couverture : jours, %, dont incertains, plus longue (j, début, fin)

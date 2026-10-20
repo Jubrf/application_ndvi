@@ -66,6 +66,8 @@ function Overview({ s, go, sel }) {
     { k: "nr", label: "Mesures retenues", num: 1, sort: (r) => r.p.n_ret, render: (r) => r.p.n_ret },
     { k: "ne", label: "Mesures écartées", num: 1, sort: (r) => r.p.n_ecart, render: (r) => r.p.n_ecart },
     { k: "tr", label: "Plus long trou (j)", num: 1, sort: (r) => r.p.trou, render: (r) => r.p.trou },
+    { k: "td", label: "Trou : début", sort: (r) => r.p.trou_d[0], render: (r) => isoFr(r.p.trou_d[0]) },
+    { k: "tf", label: "Trou : fin", sort: (r) => r.p.trou_d[1], render: (r) => isoFr(r.p.trou_d[1]) },
     { k: "dm", label: "Dernière mesure", sort: (r) => r.p.last, render: (r) => r.p.last ? r.p.last.split("-").reverse().join("/") : "—" },
     { k: "js", label: "Jours sans mesure fin", num: 1, sort: (r) => r.p.jsm, render: (r) => r.p.jsm ?? "—" },
     { k: "jc", label: "Jours couverts", num: 1, sort: (r) => r.p.cov[0], render: (r) => r.p.cov[0] ?? "—" },
@@ -79,7 +81,7 @@ function Overview({ s, go, sel }) {
     ch: "Chronologie", br: "Baisses_rapides", nr: "Mesures_retenues", ne: "Mesures_ecartees", tr: "Plus_long_trou_j",
     dm: "Derniere_mesure", js: "Jours_sans_mesure_fin", ha: "Surface_ha",
     jc: "Jours_couverts", pc: "Part_couverte_pct", ji: "Jours_couverts_incertains", cm: "Couverture_max_j",
-    cd: "Couverture_max_debut", cn: "Couverture_max_fin" };
+    cd: "Couverture_max_debut", cn: "Couverture_max_fin", td: "Plus_long_trou_debut", tf: "Plus_long_trou_fin" };
   [...evoCols, ...synthCols].forEach((c) => { if (HELP_COL[c.k]) c.help = H(HELP_COL[c.k]); });
   if (s.greyOn) synthCols.splice(4, 0, { k: "av", label: "À vérifier", help: H("A_verifier"),
     sort: (r) => (inGrey(r.p, s) ? 0 : 1), render: (r) => (r.p.curve ? (inGrey(r.p, s) ? "Oui" : "Non") : "—") });
