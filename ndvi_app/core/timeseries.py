@@ -5,7 +5,8 @@ Chaîne de traitement d'une parcelle :
   1. Sélection des mesures : écartées si statut non OK ou poids de fiabilité
      sous le minimum. Une valeur nettement sous ses voisines avant ET après n'est
      écartée que si un nuage est probable (v4.3) : parcelle en partie masquée, score de
-     clarté faible, ou nuages sur le secteur ce jour-là. Plusieurs mesures basses
+     clarté faible, ou nuages sur le secteur ce jour-là. Une mesure basse seule doit aussi
+     être nettement sous ses voisines immédiates (v5.4). Plusieurs mesures basses
      consécutives (fauche puis repousse) sont gardées si au moins une est sur une image
      propre ; une chute seule sur une image propre est gardée et signalée.
   2. Lissage : moyenne pondérée à noyau gaussien sur une grille journalière
@@ -38,7 +39,7 @@ DEFAULT_SETTINGS = {
     "min_episode_days": 10,     # épisode plus court : fusionné avec ses voisins
     "drop_threshold": 0.20,     # baisse rapide : perte de NDVI lissé…
     "drop_window_days": 15,     # …en moins de N jours
-    "uncertain_days": 15,       # courbe incertaine à plus de N jours d'une mesure
+    "uncertain_days": 15,       # courbe incertaine entre deux mesures espacées de plus de N jours
 }
 
 MOTIF_STATUS = "Statut : {}"
@@ -86,7 +87,10 @@ def _status_selection(sub, settings, status_ok=STATUS_OK):
 
 def low_points(sub, base, settings):
     """Mesures nettement sous les mesures exploitables de part et d'autre (fenêtre de N jours) :
-    candidates à l'exclusion (nuage) ou vraie baisse (fauche, récolte). Tableau booléen."""
+    candidates à l'exclusion (nuage) ou vraie baisse (fauche, récolte). Tableau booléen.
+    Mesure basse seule (voisines exploitables non basses) : elle doit aussi être nettement sous
+    la mesure exploitable juste avant et juste après (v5.4), sinon c'est un effet de bord de la
+    fenêtre au milieu d'une période basse, pas une chute ponctuelle."""
     days = (sub["Date"] - sub["Date"].min()).dt.days.to_numpy()
     vals = sub["NDVI"].to_numpy(dtype=float)
     win, thr = settings["dip_window_days"], settings["dip_threshold"]
@@ -96,6 +100,13 @@ def low_points(sub, base, settings):
         after = base & (days > days[i]) & (days <= days[i] + win)
         if before.any() and after.any():
             low[i] = vals[i] < vals[before].max() - thr and vals[i] < vals[after].max() - thr
+    idx, low0 = np.flatnonzero(base), low.copy()
+    for k, i in enumerate(idx):
+        if not low0[i] or k == 0 or k == len(idx) - 1:
+            continue
+        p, n = idx[k - 1], idx[k + 1]
+        if not low0[p] and not low0[n] and not (vals[i] < vals[p] - thr and vals[i] < vals[n] - thr):
+            low[i] = False
     return low
 
 
@@ -231,11 +242,19 @@ def smooth_curve(dates, values, weights, settings, iterations=2):
         w = wi * np.where(resid < 0, np.maximum(0.5, 1.0 / (1.0 + (resid / 0.05) ** 2)), 1.0)
         fit = _fit(w)
 
-    dist = np.abs(grid_days[:, None] - ti[None, :]).min(axis=1)
+    # Incertain (v5.4) : jour situé entre deux mesures retenues espacées de plus de N jours
+    # (tout le trou en pointillé, jours de mesure exclus)
+    ts = np.unique(ti)
+    j = np.clip(np.searchsorted(ts, grid_days, side="right"), 1, len(ts) - 1) if len(ts) > 1 else None
+    if j is None:
+        unc = np.zeros(len(grid_days), dtype=bool)
+    else:
+        gap = ts[j] - ts[j - 1]
+        unc = (gap > settings["uncertain_days"]) & ~np.isin(grid_days, ts)
     return pd.DataFrame({
         "Date": t0 + pd.to_timedelta(grid_days, unit="D"),
         "NDVI_lisse": np.round(fit, 3),
-        "Incertain": dist > settings["uncertain_days"],
+        "Incertain": unc,
     })
 
 
@@ -333,8 +352,8 @@ def coverage(curve, low, span, uncertain_days):
     Durée de couverture du sol (NDVI lissé ≥ seuil bas) de la première à la dernière date
     analysée (span = (début, fin), commun à toutes les parcelles).
     La courbe va de la 1re à la dernière mesure retenue de la parcelle : avant et après, elle
-    est prolongée à plat ; ces jours sont incertains au-delà de uncertain_days, comme dans la
-    courbe. Jours sans valeur lissée au milieu (trou très long) : interpolation linéaire, comme
+    est prolongée à plat ; ces jours sont incertains si ce bord dépasse uncertain_days, comme
+    un trou entre deux mesures dans la courbe. Jours sans valeur lissée au milieu (trou très long) : interpolation linéaire, comme
     le tracé. Les jours incertains sont comptés et signalés à part.
     """
     empty = {"Jours_couverts": None, "Part_couverte_pct": None, "Jours_couverts_incertains": None,
@@ -350,8 +369,8 @@ def coverage(curve, low, span, uncertain_days):
     unc = curve["Incertain"].to_numpy(dtype=bool)
     before, after = max(0, (c0 - d0).days), max(0, (d1 - c1).days)
     v = np.concatenate([np.full(before, vals[0]), vals, np.full(after, vals[-1])])
-    u = np.concatenate([np.arange(before, 0, -1) > uncertain_days, unc,
-                        np.arange(1, after + 1) > uncertain_days])
+    u = np.concatenate([np.full(before, before > uncertain_days), unc,
+                        np.full(after, after > uncertain_days)])
     start = c0 - pd.Timedelta(days=before)
     covered = v >= low
     best, best_a, a = 0, None, None

@@ -131,13 +131,14 @@ def column_help(low, high, grey=None, uncertain_days=15):
         "NDVI_lisse": "Valeur de la courbe lissée à cette date.",
         "Retenue": "Oui si la mesure est utilisée pour la courbe.",
         "Motif": "Raison de l'exclusion : statut non OK, poids trop faible, chute isolée "
-                 "(valeur nettement sous ses voisines avant et après) avec un signe de nuage "
+                 "(valeur nettement sous ses voisines avant et après dans les 15 jours, et sous la "
+                 "mesure juste avant et juste après) avec un signe de nuage "
                  "(parcelle en partie masquée, score de clarté < 0,75 ou nuages sur le secteur), "
                  "ou baisse sur plusieurs dates toutes nuageuses. Une baisse sur plusieurs dates "
                  "dont une sur image propre (fauche, récolte) est gardée ; une chute seule sur "
                  "image propre aussi, avec la mention « chute ponctuelle sans nuage détecté ».",
-        "Incertain": f"Vrai si la date est à plus de {uncertain_days} jours de toute mesure retenue "
-                     "(courbe interpolée, tracée en pointillé).",
+        "Incertain": f"Vrai si la date est entre deux mesures retenues espacées de plus de "
+                     f"{uncertain_days} jours (courbe interpolée, tracée en pointillé).",
         # Durée de couverture (v5.3)
         "Jours_couverts": f"Jours où le NDVI lissé est ≥ {_t(low)} (seuil sol nu / couvert), de la "
                           "première à la dernière date analysée. Avant la 1re et après la dernière "
@@ -145,9 +146,11 @@ def column_help(low, high, grey=None, uncertain_days=15):
                           "incertains compris.",
         "Part_couverte_pct": "Jours couverts / nombre de jours de la première à la dernière date "
                              "analysée (%), même durée pour toutes les parcelles.",
-        "Jours_couverts_incertains": f"Jours couverts situés à plus de {uncertain_days} jours de toute "
-                                     "mesure retenue (courbe en pointillé ou prolongée), comptés "
-                                     "dans Jours_couverts.",
+        "Jours_couverts_incertains": f"Jours couverts situés entre deux mesures retenues espacées "
+                                     f"de plus de {uncertain_days} jours (pointillé), ou dans un "
+                                     f"bord de plus de {uncertain_days} jours avant la 1re ou après "
+                                     "la dernière mesure (courbe prolongée) ; comptés dans "
+                                     "Jours_couverts.",
         "Couverture_max_j": f"Plus longue période continue avec un NDVI lissé ≥ {_t(low)} (jours).",
         "Couverture_max_debut": "Premier jour de la plus longue période couverte.",
         "Couverture_max_fin": "Dernier jour de la plus longue période couverte.",

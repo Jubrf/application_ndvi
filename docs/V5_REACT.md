@@ -44,7 +44,10 @@ cartes, analyse à une date) sont identiques à ceux de Streamlit (banc de tests
   dernière mesure retenue), part en %, dont jours incertains, plus longue période couverte
   (début, fin). Fiche, Tableaux, Excel (fin de la Synthèse). Calculée à l'ouverture : les
   analyses enregistrées l'affichent sans nouveau calcul Earth Engine.
-- Délai de courbe incertaine réglable (15 jours par défaut ; écrit dans le fichier seulement
+- Chute ponctuelle (v5.4) : une mesure basse seule doit aussi être nettement sous la mesure juste
+  avant et juste après (sinon effet de bord de la fenêtre de 15 jours dans une période basse).
+- Courbe incertaine (pointillé) entre deux mesures retenues espacées de plus de N jours (v5.4 ;
+  auparavant : jours à plus de N jours de toute mesure). Délai réglable (15 jours par défaut ; écrit dans le fichier seulement
   s'il diffère de 15, fichier lisible par Streamlit qui l'ignore).
 - Analyse à une date : image d'une date sur l'analyse ouverte ou les parcelles chargées.
 - Exports : Excel, Enregistrer (.zip), cartes KML et HTML.

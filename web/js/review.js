@@ -233,7 +233,7 @@ function Detail({ s, sel, setSel, ids, showMap, setShowMap, visible }) {
         <h2>Évolution du NDVI</h2>
         <p class="cap">${p.chrono}</p>
         <${ParcelChart} p=${p} settings=${s} day=${day} setDay=${setDay} W=${W} />
-        <p class="cap">● mesure retenue, ○ mesure écartée, pointillé : courbe interpolée à plus de ${s.uncertain_days ?? 15} jours de toute mesure, tirets : seuils. Valeurs du jour survolé et de la mesure la plus proche sous la courbe (sinon celles du repère bleu) ; clic : place le repère bleu${showMap ? " (la carte suit)" : ""}.</p>
+        <p class="cap">● mesure retenue, ○ mesure écartée, pointillé : plus de ${s.uncertain_days ?? 15} jours entre deux mesures retenues, tirets : seuils. Valeurs du jour survolé et de la mesure la plus proche sous la courbe (sinon celles du repère bleu) ; clic : place le repère bleu${showMap ? " (la carte suit)" : ""}.</p>
         <${WeatherBlock} day=${day} W=${W} />
         <h3>NDTI — résidus de culture (expérimental)</h3>
         <${NdtiChart} p=${p} s=${s} day=${day} W=${W} />

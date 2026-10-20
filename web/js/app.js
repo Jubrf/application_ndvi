@@ -30,12 +30,12 @@ function Sidebar({ s, setS, info, reset, busy }) {
       <input type="range" min="0" max="1" step="0.05" value=${s.min_weight} onInput=${(e) => set({ min_weight: +e.target.value })} /></label>
     <label title="Plus la valeur est grande, plus la courbe est lisse, mais plus elle réagit tard aux changements.">Lissage de la courbe <b>${s.smooth_days} jours</b>
       <input type="range" min="0" max=${SMOOTH_OPTS.length - 1} step="1" value=${si} onInput=${(e) => set({ smooth_days: SMOOTH_OPTS[+e.target.value] })} /></label>
-    <label title="Au-delà de ce délai sans mesure retenue, la courbe est tracée en pointillé et les jours comptés « incertains » (durée de couverture).">Courbe incertaine au-delà de <b>${unc} jours</b> sans mesure
+    <label title="Entre deux mesures retenues plus espacées que ce délai, la courbe est tracée en pointillé et les jours comptés « incertains » (durée de couverture).">Courbe incertaine si plus de <b>${unc} jours</b> entre deux mesures
       <input type="range" min="0" max=${UNC_OPTS.length - 1} step="1" value=${ui} onInput=${(e) => set({ uncertain_days: UNC_OPTS[+e.target.value] })} /></label>
     <button class="tool" onClick=${reset}>Revenir aux réglages du fichier</button>
     <h3 class="lock">Calcul, verrouillé</h3>
     <p class="note">Fixé par l'analyse ouverte : buffer ${L.buffer_m} m, Cloud Score+ ${fr(L.cs_threshold)}, marge nuages ${L.cloud_buffer_m} m, valeurs aberrantes ${fr(L.iqr_k, 1)} × IQR.</p>
-    <p class="note version">Interface React v5.3 · moteur ${info.server_version}</p>
+    <p class="note version">Interface React v5.4 · moteur ${info.server_version}</p>
   </aside>`;
 }
 
