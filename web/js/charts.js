@@ -68,7 +68,7 @@ function ParcelChart({ p, settings, day, setDay, W = 400 }) {
 }
 
 /* Météo ERA5-Land (comme Streamlit) : pluie journalière + gel, puis humidité du sol 0–7 cm */
-function WeatherCharts({ day, W = 400 }) {
+function WeatherCharts({ day, setDay, W = 400 }) {
   const wx = D.weather, n = D.nDays, X = xOf(W);
   const [hov, setHov] = useState(null);
   const maxR = Math.max(10, ...wx.rain.filter((v) => v != null));
@@ -79,7 +79,8 @@ function WeatherCharts({ day, W = 400 }) {
   if (seg.length) sm.push(seg);
   const months = monthStarts(n);
   const k = hov != null ? hov : day;
-  const events = { onMouseMove: (e) => setHov(kOf(e, W)), onMouseLeave: () => setHov(null) };
+  const events = { onMouseMove: (e) => setHov(kOf(e, W)), onMouseLeave: () => setHov(null),
+    onClick: (e) => setDay && setDay(kOf(e, W)) };
   return html`<div class="chartwrap">
     <svg viewBox=${`0 0 ${W} ${R_H}`} class="chart" ...${events}>
       <text x=${AX_L - 5} y="12" class="ax" text-anchor="end">${Math.round(maxR)}</text>
@@ -101,7 +102,7 @@ function WeatherCharts({ day, W = 400 }) {
       ${hov != null && html`<line x1=${X(hov)} x2=${X(hov)} y1="0" y2=${S_H - 18} class="hovline" />`}
     </svg>
     <${Info} cls="i-wx">
-      <div><b>${fmtDay(k)}</b><span class="muted">${hov != null ? "" : " — repère"}</span><br/>
+      <div><b>${fmtDay(k)}</b><span class="muted">${hov != null ? (setDay ? " — clic : place le repère ici" : "") : " — repère"}</span><br/>
         ${`Pluie : ${fr(wx.rain[k], 1)} mm`}<br/>${`Humidité du sol : ${fr(wx.sm[k])} m³/m³`}<br/>${`Température min. : ${fr(wx.tmin[k], 1)} °C`}</div>
     <//>
   </div>`;
@@ -109,9 +110,10 @@ function WeatherCharts({ day, W = 400 }) {
 
 /* NDTI (expérimental, comme Streamlit) : toutes les mesures ; points pleins si la parcelle est
    peu verte (NDVI < seuil bas, seuls interprétables), cercle orange si le sol est humide. */
-function NdtiChart({ p, s, day, W = 400 }) {
+function NdtiChart({ p, s, day, setDay, W = 400 }) {
   const pts = p.meas.filter((m) => m[3] != null);
-  const [hov, setHov] = useState(null);
+  const [hov, setHov] = useState(null);         // point survolé
+  const [hovDay, setHovDay] = useState(null);   // jour survolé
   if (!pts.length) return html`<p class="cap">Pas de valeur NDTI pour cette parcelle (analyse enregistrée avant la v2.5).</p>`;
   const Hh = 150, T = 8, B = 20, X = xOf(W);
   const vals = pts.map((m) => m[3]);
@@ -122,9 +124,12 @@ function NdtiChart({ p, s, day, W = 400 }) {
   const ticks = [];
   for (let v = Math.ceil(lo / 0.1) * 0.1; v <= hi + 1e-9; v += 0.1) ticks.push(Math.round(v * 10) / 10);
   const months = monthStarts(D.nDays);
-  const cur = hov || nearMeas(pts, day);
+  const hovering = hovDay != null || hov != null;
+  const cur = hov || (hovDay != null ? nearMeas(pts, hovDay) : nearMeas(pts, day));
   return html`<div class="chartwrap">
-    <svg viewBox=${`0 0 ${W} ${Hh}`} class="chart">
+    <svg viewBox=${`0 0 ${W} ${Hh}`} class="chart" onMouseMove=${(e) => setHovDay(kOf(e, W))}
+        onMouseLeave=${() => { setHovDay(null); setHov(null); }}
+        onClick=${(e) => setDay && setDay(hov ? hov[0] : kOf(e, W))}>
       ${ticks.map((v) => html`<text key=${v} x=${AX_L - 5} y=${Y(v) + 3} class="ax" text-anchor="end">${fr(v, 1)}</text>`)}
       ${months.map((k) => html`<g key=${k}><line x1=${X(k)} x2=${X(k)} y1=${T} y2=${Hh - B} class="grid" />
         <text x=${X(k) + 3} y=${Hh - 5} class="ax">${MONTHS[dayDate(k).getMonth()]}</text></g>`)}
@@ -137,12 +142,13 @@ function NdtiChart({ p, s, day, W = 400 }) {
       ${pts.map((m) => html`<circle key=${"h" + m[0]} cx=${X(m[0])} cy=${Y(m[3])} r="9" fill="transparent"
           onMouseEnter=${() => setHov(m)} onMouseLeave=${() => setHov(null)} />`)}
       <line x1=${X(day)} x2=${X(day)} y1=${T} y2=${Hh - B} class="cursor" />
+      ${hovDay != null && html`<line x1=${X(hov ? hov[0] : hovDay)} x2=${X(hov ? hov[0] : hovDay)} y1=${T} y2=${Hh - B} class="hovline" />`}
     </svg>
     <${Info} cls="i-ndti">${cur ? html`<div>
-      <b>${fmtDay(cur[0])}</b><span class="muted">${hov ? "" : " — mesure la plus proche du repère"}</span><br/>
+      <b>${fmtDay(cur[0])}</b><span class="muted">${hovering ? (cur[0] !== hovDay && !hov ? ` — mesure la plus proche du ${fmtDay(hovDay)}` : "") + (setDay ? " — clic : place le repère ici" : "") : " — mesure la plus proche du repère"}</span><br/>
       ${`NDTI : ${fr(cur[3], 3)} · NDVI : ${fr(cur[1], 3)}`}<br/>
       ${`Interprétable : ${readable(cur) ? "Oui" : "Non (parcelle verte)"}`}<br/>${`État du sol : ${D.etats[cur[4]]}`}<br/>${`Lecture : ${D.lectures[cur[5]]}`}</div>`
-      : html`<div class="muted">Survolez un point pour afficher ses valeurs.</div>`}<//>
+      : html`<div class="muted">${hovering ? `${fmtDay(hovDay)} : pas de mesure NDTI à 3 jours près.` : "Survolez le graphique pour afficher les valeurs d'une mesure."}</div>`}<//>
   </div>`;
 }
 

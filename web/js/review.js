@@ -160,7 +160,7 @@ function ReadingBox({ p, s }) {
   </div>`;
 }
 
-function WeatherBlock({ day, W }) {
+function WeatherBlock({ day, setDay, W }) {
   const info = ACTIONS.info || {};
   const [busy, setBusy] = useState(false);
   const refresh = async () => { setBusy(true); try { await ACTIONS.weather(true); } finally { setBusy(false); } };
@@ -168,9 +168,9 @@ function WeatherBlock({ day, W }) {
   return html`<div>
     <div class="h3row"><h3>Météo de la zone (ERA5-Land)</h3>
       ${ACTIONS.gee.ok && html`<button class="tool small" disabled=${busy} onClick=${refresh} title="Nouvelle requête : derniers jours publiés depuis la précédente">${busy ? "Actualisation…" : "Actualiser la météo"}</button>`}</div>
-    ${D.weather ? html`<${WeatherCharts} day=${day} W=${W} />
+    ${D.weather ? html`<${WeatherCharts} day=${day} setDay=${setDay} W=${W} />
       <p class="cap">Barres : pluie journalière (mm). ▼ gel (≤ −2 °C). Trait brun : humidité du sol entre 0 et 7 cm (m³/m³) ;
-        tirets : 0,32 (ressuyé) et 0,40 (proche saturation). ${last >= 0 && last < D.nDays - 1 ? `Météo publiée jusqu'au ${fmtDay(last)} (quelques jours de retard).` : ""} Valeurs du jour survolé sous les graphiques (sinon celles du repère bleu).</p>`
+        tirets : 0,32 (ressuyé) et 0,40 (proche saturation). ${last >= 0 && last < D.nDays - 1 ? `Météo publiée jusqu'au ${fmtDay(last)} (quelques jours de retard).` : ""} Valeurs du jour survolé sous les graphiques (sinon celles du repère bleu) ; clic : place le repère bleu.</p>`
       : html`<p class="cap">${info.weather_error ? "Météo ERA5-Land indisponible lors du calcul : " : "Météo absente de ce fichier : "}la lecture du sol se fait sans pluie ni humidité.${ACTIONS.gee.ok ? " « Actualiser la météo » pour la récupérer." : ""}</p>`}
   </div>`;
 }
@@ -234,10 +234,10 @@ function Detail({ s, sel, setSel, ids, showMap, setShowMap, visible }) {
         <p class="cap">${p.chrono}</p>
         <${ParcelChart} p=${p} settings=${s} day=${day} setDay=${setDay} W=${W} />
         <p class="cap">● mesure retenue, ○ mesure écartée, pointillé : plus de ${s.uncertain_days ?? 15} jours entre deux mesures retenues, tirets : seuils. Valeurs du jour survolé et de la mesure la plus proche sous la courbe (sinon celles du repère bleu) ; clic : place le repère bleu${showMap ? " (la carte suit)" : ""}.</p>
-        <${WeatherBlock} day=${day} W=${W} />
+        <${WeatherBlock} day=${day} setDay=${setDay} W=${W} />
         <h3>NDTI — résidus de culture (expérimental)</h3>
-        <${NdtiChart} p=${p} s=${s} day=${day} W=${W} />
-        <p class="cap">Points pleins quand la parcelle est peu verte (NDVI ${"<"} ${fr(s.low)}), seuls interprétables ; cercle orange : sol humide ou à vérifier (NDTI non lu) ; cercle gris : parcelle verte. Survol d’un point : NDTI, état du sol et lecture sous le graphique. Lignes : repères indicatifs, à calibrer.</p>
+        <${NdtiChart} p=${p} s=${s} day=${day} setDay=${setDay} W=${W} />
+        <p class="cap">Points pleins quand la parcelle est peu verte (NDVI ${"<"} ${fr(s.low)}), seuls interprétables ; cercle orange : sol humide ou à vérifier (NDTI non lu) ; cercle gris : parcelle verte. Survol : NDTI, état du sol et lecture de la mesure la plus proche sous le graphique ; clic : place le repère bleu. Lignes : repères indicatifs, à calibrer.</p>
       </div>
       <div class="col">
         <${ImageBlock} p=${p} />
