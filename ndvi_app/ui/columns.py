@@ -15,12 +15,16 @@ TECH_COLS = ["ID", "Date", "Statut", "NDVI_brut", "NDVI_median", "NDVI_pondere",
 SYNTH_COLS = ["ID", "Phase_fin", "NDVI_fin", "A_verifier", "Lecture_fin", "Etat_sol_fin", "Confiance",
               "Chronologie", "Baisses_rapides",
               "Mesures_retenues", "Mesures_ecartees", "Plus_long_trou_j", "Derniere_mesure",
-              "Jours_sans_mesure_fin", "Surface_ha"]
+              "Jours_sans_mesure_fin", "Surface_ha",
+              # v5.3 : durée de couverture, en fin de tableau
+              "Jours_couverts", "Part_couverte_pct", "Jours_couverts_incertains",
+              "Couverture_max_j", "Couverture_max_debut", "Couverture_max_fin"]
 DETAIL_COLS = ["ID", "Date", "NDVI", "NDVI_lisse", "Phase", "Fiabilite", "Poids", "Retenue",
                "Motif", "NDTI", "Etat_sol", "Lecture", "Pluie_3j_mm", "Pluie_veille_mm",
                "Humidite_sol", "Tmin_7j_C", "Gel", "Statut", "Clair_pct"]
 INT_COLS = ["Pixels_utilises", "Outliers_exclus", "Buffer_m", "Pixels_total", "Pixels_clairs",
-            "Mesures_retenues", "Mesures_ecartees", "Plus_long_trou_j", "Jours_sans_mesure_fin"]
+            "Mesures_retenues", "Mesures_ecartees", "Plus_long_trou_j", "Jours_sans_mesure_fin",
+            "Jours_couverts", "Part_couverte_pct", "Jours_couverts_incertains", "Couverture_max_j"]
 
 WIDE_COLS = {"Chronologie", "Motif"}
 
@@ -34,7 +38,7 @@ def pick(df, cols):
     return df
 
 
-def column_help(low, high, grey=None):
+def column_help(low, high, grey=None, uncertain_days=15):
     """Définition de chaque colonne ; les seuils d'interprétation y sont rappelés."""
     return {
         "A_verifier": (f"Zone grise : Oui si le NDVI lissé à la dernière mesure retenue est entre "
@@ -127,8 +131,21 @@ def column_help(low, high, grey=None):
                  "ou baisse sur plusieurs dates toutes nuageuses. Une baisse sur plusieurs dates "
                  "dont une sur image propre (fauche, récolte) est gardée ; une chute seule sur "
                  "image propre aussi, avec la mention « chute ponctuelle sans nuage détecté ».",
-        "Incertain": "Vrai si la date est à plus de 15 jours de toute mesure retenue "
+        "Incertain": f"Vrai si la date est à plus de {uncertain_days} jours de toute mesure retenue "
                      "(courbe interpolée, tracée en pointillé).",
+        # Durée de couverture (v5.3)
+        "Jours_couverts": f"Jours où le NDVI lissé est ≥ {_t(low)} (seuil sol nu / couvert), de la "
+                          "première à la dernière date analysée. Avant la 1re et après la dernière "
+                          "mesure retenue de la parcelle, la courbe est prolongée à plat. Jours "
+                          "incertains compris.",
+        "Part_couverte_pct": "Jours couverts / nombre de jours de la première à la dernière date "
+                             "analysée (%), même durée pour toutes les parcelles.",
+        "Jours_couverts_incertains": f"Jours couverts situés à plus de {uncertain_days} jours de toute "
+                                     "mesure retenue (courbe en pointillé ou prolongée), comptés "
+                                     "dans Jours_couverts.",
+        "Couverture_max_j": f"Plus longue période continue avec un NDVI lissé ≥ {_t(low)} (jours).",
+        "Couverture_max_debut": "Premier jour de la plus longue période couverte.",
+        "Couverture_max_fin": "Dernier jour de la plus longue période couverte.",
         # Technique
         "NDVI_median": "Médiane du NDVI des pixels conservés.",
         "NDVI_pondere": "Moyenne du NDVI pondérée par le score Cloud Score+ de chaque pixel.",

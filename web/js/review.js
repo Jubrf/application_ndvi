@@ -218,6 +218,9 @@ function Detail({ s, sel, setSel, ids, showMap, setShowMap, visible }) {
       <div><span>Mesures retenues</span><b>${p.n_ret} / ${D.dates.length}</b></div>
       <div><span>Plus long trou sans mesure</span><b>${p.trou ?? "—"} j</b></div>
       <div><span>Baisse rapide</span><b class="small">${!p.drops || p.drops === "—" ? "aucune" : p.drops}</b></div>
+      <div title=${H("Jours_couverts")}><span>${`Sol couvert (NDVI lissé ≥ ${fr(s.low)})`}</span>
+        <b>${p.cov[0] == null ? "—" : `${p.cov[0]} / ${spanDays()} j · ${p.cov[1]} %`}</b>
+        ${p.cov[0] != null && html`<em>${`dont ${p.cov[2]} j incertains${p.cov[3] ? ` · plus longue : ${p.cov[3]} j (${isoFrShort(p.cov[4])} → ${isoFrShort(p.cov[5])})` : ""}`}</em>`}</div>
     </div>
     ${showMap && html`<div class="mappanel">
       <${PhaseMap} s=${s} day=${day} sel=${p.id} setSel=${setSel} visible=${visible} />
@@ -228,7 +231,7 @@ function Detail({ s, sel, setSel, ids, showMap, setShowMap, visible }) {
         <h2>Évolution du NDVI</h2>
         <p class="cap">${p.chrono}</p>
         <${ParcelChart} p=${p} settings=${s} day=${day} setDay=${setDay} W=${W} />
-        <p class="cap">● mesure retenue, ○ mesure écartée, pointillé : courbe interpolée à plus de 15 jours de toute mesure, tirets : seuils. Valeurs du jour survolé et de la mesure la plus proche sous la courbe (sinon celles du repère bleu) ; clic : place le repère bleu${showMap ? " (la carte suit)" : ""}.</p>
+        <p class="cap">● mesure retenue, ○ mesure écartée, pointillé : courbe interpolée à plus de ${s.uncertain_days ?? 15} jours de toute mesure, tirets : seuils. Valeurs du jour survolé et de la mesure la plus proche sous la courbe (sinon celles du repère bleu) ; clic : place le repère bleu${showMap ? " (la carte suit)" : ""}.</p>
         <${WeatherBlock} day=${day} W=${W} />
         <h3>NDTI — résidus de culture (expérimental)</h3>
         <${NdtiChart} p=${p} s=${s} day=${day} W=${W} />
@@ -249,6 +252,7 @@ function Detail({ s, sel, setSel, ids, showMap, setShowMap, visible }) {
         { k: "fi", label: "Fiabilité", help: H("Fiabilite"), sort: (r) => r.m[8], render: (r) => r.m[17] || "—" },
         { k: "po", label: "Poids", num: 1, help: H("Poids"), sort: (r) => r.m[8], render: (r) => fr(r.m[8]) },
         { k: "r", label: "Retenue", help: H("Retenue"), sort: (r) => r.m[2], render: (r) => (r.m[2] ? "Oui" : "Non") },
+        { k: "ci", label: "Courbe incertaine", help: H("Incertain"), sort: (r) => uncAt(p, r.m[0]), render: (r) => (!p.curve ? "—" : uncAt(p, r.m[0]) ? "Oui" : "Non") },
         { k: "mo", label: "Motif", help: H("Motif"), sort: (r) => MOTIF(r.m), render: (r) => MOTIF(r.m) },
         { k: "nt", label: "NDTI", num: 1, help: H("NDTI"), sort: (r) => r.m[3], render: (r) => fr(r.m[3], 3) },
         { k: "es", label: "État du sol", help: H("Etat_sol"), sort: (r) => r.m[4], render: (r) => D.etats[r.m[4]] },

@@ -55,7 +55,8 @@ def default_interpretation():
     return {"low": DEFAULT_THRESHOLDS[0], "high": DEFAULT_THRESHOLDS[1],
             "min_clear": DEFAULT_MIN_CLEAR, "min_pixels": DEFAULT_MIN_PIXELS,
             "min_weight": DEFAULT_SETTINGS["min_weight"],
-            "smooth_days": DEFAULT_SETTINGS["smooth_days"], "grey": None}
+            "smooth_days": DEFAULT_SETTINGS["smooth_days"], "grey": None,
+            "uncertain_days": DEFAULT_SETTINGS["uncertain_days"]}
 
 
 # ---------------------------------------------------------------- fichier de parcelles

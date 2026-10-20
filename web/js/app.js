@@ -1,10 +1,12 @@
 /* ---------------------------------------------------------------- réglages d'interprétation (panneau) */
 const SMOOTH_OPTS = [3, 4, 6, 8, 10, 15];
+const UNC_OPTS = [7, 10, 15, 20, 25, 30, 45];
 function Sidebar({ s, setS, info, reset, busy }) {
   const set = (patch) => setS({ ...s, ...patch });
   const setLow = (v) => set({ low: Math.min(v, s.high - 0.01) });
   const setHigh = (v) => set({ high: Math.max(v, s.low + 0.01) });
   const si = Math.max(0, SMOOTH_OPTS.indexOf(s.smooth_days));
+  const unc = s.uncertain_days ?? 15, ui = Math.max(0, UNC_OPTS.indexOf(unc));
   const L = info.locked;
   return html`<aside class="side">
     <h3>Interprétation</h3>
@@ -28,10 +30,12 @@ function Sidebar({ s, setS, info, reset, busy }) {
       <input type="range" min="0" max="1" step="0.05" value=${s.min_weight} onInput=${(e) => set({ min_weight: +e.target.value })} /></label>
     <label title="Plus la valeur est grande, plus la courbe est lisse, mais plus elle réagit tard aux changements.">Lissage de la courbe <b>${s.smooth_days} jours</b>
       <input type="range" min="0" max=${SMOOTH_OPTS.length - 1} step="1" value=${si} onInput=${(e) => set({ smooth_days: SMOOTH_OPTS[+e.target.value] })} /></label>
+    <label title="Au-delà de ce délai sans mesure retenue, la courbe est tracée en pointillé et les jours comptés « incertains » (durée de couverture).">Courbe incertaine au-delà de <b>${unc} jours</b> sans mesure
+      <input type="range" min="0" max=${UNC_OPTS.length - 1} step="1" value=${ui} onInput=${(e) => set({ uncertain_days: UNC_OPTS[+e.target.value] })} /></label>
     <button class="tool" onClick=${reset}>Revenir aux réglages du fichier</button>
     <h3 class="lock">Calcul, verrouillé</h3>
     <p class="note">Fixé par l'analyse ouverte : buffer ${L.buffer_m} m, Cloud Score+ ${fr(L.cs_threshold)}, marge nuages ${L.cloud_buffer_m} m, valeurs aberrantes ${fr(L.iqr_k, 1)} × IQR.</p>
-    <p class="note version">Interface React v5.1 · moteur ${info.server_version}</p>
+    <p class="note version">Interface React v5.3 · moteur ${info.server_version}</p>
   </aside>`;
 }
 
@@ -100,13 +104,13 @@ function App() {
 
   /* Adopte une analyse connue du serveur (o = {info, geometry}) et son fichier f */
   const adopt = async (o, f, opt = {}) => {
-    const s0 = opt.s || uiSettings(o.info.settings, o.info.default_grey);
+    const s0 = withUnc(opt.s) || uiSettings(o.info.settings, o.info.default_grey);
     const r = await (await postJSON(`/api/analyses/${o.info.key}/results`, serverSettings(s0))).json();
     setData(r, o.geometry);
     fileRef.current = f;
     keyRef.current = o.info.key;
     setInfo(o.info); setGeo(o.geometry); setDataState(r); setS(s0);
-    setSaved(opt.saved || JSON.stringify(serverSettings(uiSettings(o.info.settings, o.info.default_grey))));
+    setSaved(savedKey(opt.saved) || JSON.stringify(serverSettings(uiSettings(o.info.settings, o.info.default_grey))));
     setDirty(!!opt.dirty);
     const ids = r.parcels.map((p) => p.id);
     setSel(opt.sel && ids.includes(opt.sel) ? opt.sel : ids[0] || null);

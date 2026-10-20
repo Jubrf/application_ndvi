@@ -82,7 +82,7 @@ function DatePicker({ list, sel, setSel, presel, setPresel, minClear, presetLabe
       <button class="tool small" onClick=${() => setSel(new Set(list.filter(usable).map((d) => d.date)))}>Présélection</button>
     </div>
     <div class="dlist">
-      ${list.map((d) => html`<label key=${d.date} class=${"dopt " + (d.covers ? "" : "off")}>
+      ${list.map((d) => html`<label key=${d.date} class=${"dopt " + (d.covers ? "" : "off")} title=${dateLabel(d, minClear)}>
         <input type="checkbox" disabled=${!d.covers} checked=${sel.has(d.date)}
           onChange=${(e) => { const n = new Set(sel); e.target.checked ? n.add(d.date) : n.delete(d.date); setSel(n); }} />
         ${dateLabel(d, minClear)}</label>`)}

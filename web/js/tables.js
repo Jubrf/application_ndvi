@@ -52,6 +52,8 @@ function Overview({ s, go, sel }) {
     { k: "lf", label: "Lecture fin", sort: (r) => r.p.lect_fin, render: (r) => r.p.lect_fin },
     { k: "cf", label: "Confiance", sort: (r) => CONF_ORDER.indexOf(r.p.conf), render: (r) => r.p.conf },
     { k: "br", label: "Baisse rapide", sort: (r) => r.p.drops, render: (r) => r.p.drops },
+    { k: "pc", label: "Couverture", num: 1, sort: (r) => r.p.cov[1],
+      render: (r) => (r.p.cov[0] == null ? "—" : `${r.p.cov[0]} j · ${r.p.cov[1]} %`) },
   ];
   const synthCols = [...base,
     { k: "pf", label: "Phase fin", sort: (r) => phaseFin(r.p, s), render: phCell },
@@ -66,10 +68,18 @@ function Overview({ s, go, sel }) {
     { k: "tr", label: "Plus long trou (j)", num: 1, sort: (r) => r.p.trou, render: (r) => r.p.trou },
     { k: "dm", label: "Dernière mesure", sort: (r) => r.p.last, render: (r) => r.p.last ? r.p.last.split("-").reverse().join("/") : "—" },
     { k: "js", label: "Jours sans mesure fin", num: 1, sort: (r) => r.p.jsm, render: (r) => r.p.jsm ?? "—" },
+    { k: "jc", label: "Jours couverts", num: 1, sort: (r) => r.p.cov[0], render: (r) => r.p.cov[0] ?? "—" },
+    { k: "pc", label: "Part couverte (%)", num: 1, sort: (r) => r.p.cov[1], render: (r) => r.p.cov[1] ?? "—" },
+    { k: "ji", label: "Dont incertains (j)", num: 1, sort: (r) => r.p.cov[2], render: (r) => r.p.cov[2] ?? "—" },
+    { k: "cm", label: "Plus longue couverture (j)", num: 1, sort: (r) => r.p.cov[3], render: (r) => r.p.cov[3] ?? "—" },
+    { k: "cd", label: "Couverture : début", sort: (r) => r.p.cov[4], render: (r) => isoFr(r.p.cov[4]) },
+    { k: "cn", label: "Couverture : fin", sort: (r) => r.p.cov[5], render: (r) => isoFr(r.p.cov[5]) },
   ];
   const HELP_COL = { nf: "NDVI_fin", pf: "Phase_fin", lf: "Lecture_fin", es: "Etat_sol_fin", cf: "Confiance",
     ch: "Chronologie", br: "Baisses_rapides", nr: "Mesures_retenues", ne: "Mesures_ecartees", tr: "Plus_long_trou_j",
-    dm: "Derniere_mesure", js: "Jours_sans_mesure_fin", ha: "Surface_ha" };
+    dm: "Derniere_mesure", js: "Jours_sans_mesure_fin", ha: "Surface_ha",
+    jc: "Jours_couverts", pc: "Part_couverte_pct", ji: "Jours_couverts_incertains", cm: "Couverture_max_j",
+    cd: "Couverture_max_debut", cn: "Couverture_max_fin" };
   [...evoCols, ...synthCols].forEach((c) => { if (HELP_COL[c.k]) c.help = H(HELP_COL[c.k]); });
   if (s.greyOn) synthCols.splice(4, 0, { k: "av", label: "À vérifier", help: H("A_verifier"),
     sort: (r) => (inGrey(r.p, s) ? 0 : 1), render: (r) => (r.p.curve ? (inGrey(r.p, s) ? "Oui" : "Non") : "—") });

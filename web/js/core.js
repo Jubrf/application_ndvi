@@ -86,10 +86,20 @@ function fileName(r, fallback) {
 }
 /* Réglages envoyés au serveur (format de api.main.Settings) */
 const serverSettings = (s) => ({ low: s.low, high: s.high, min_clear: s.min_clear, min_pixels: s.min_pixels,
-  min_weight: s.min_weight, smooth_days: s.smooth_days, grey: s.greyOn ? [...s.grey] : null });
+  min_weight: s.min_weight, smooth_days: s.smooth_days, grey: s.greyOn ? [...s.grey] : null, uncertain_days: s.uncertain_days ?? 15 });
 /* Réglages de l'interface à partir de ceux d'un fichier */
 const uiSettings = (st, defaultGrey) => ({ low: st.low, high: st.high, greyOn: !!st.grey, grey: st.grey || defaultGrey || [0.2, 0.25],
-  min_clear: st.min_clear, min_pixels: st.min_pixels, min_weight: st.min_weight, smooth_days: st.smooth_days });
+  min_clear: st.min_clear, min_pixels: st.min_pixels, min_weight: st.min_weight, smooth_days: st.smooth_days,
+  uncertain_days: st.uncertain_days ?? 15 });
+/* Réglages conservés par une version précédente (sans délai d'incertitude) : complétés à 15 jours */
+const withUnc = (s) => (s && s.uncertain_days == null ? { ...s, uncertain_days: 15 } : s);
+const savedKey = (str) => (str ? JSON.stringify(withUnc(JSON.parse(str))) : str);
+/* Durée de couverture : de la première à la dernière date analysée */
+const spanDays = () => (D.dates.length ? D.dates[D.dates.length - 1] - D.dates[0] + 1 : 0);
+const isoFr = (iso) => (iso ? iso.split("-").reverse().join("/") : "—");
+const isoFrShort = (iso) => (iso ? iso.slice(8, 10) + "/" + iso.slice(5, 7) : "—");
+/* Courbe incertaine au jour k (plus de N jours de toute mesure retenue) */
+const uncAt = (p, k) => !!(p.curve && p.curve.u.some(([a, b]) => k >= a && k <= b));
 /* Actions de l'application (renseignées par App), appelées depuis les pages :
    withKey(fn) appel lié à l'analyse ouverte (renvoi du fichier si le serveur l'a oublié),
    mapFile, setErr, gee (état de la connexion Earth Engine). */

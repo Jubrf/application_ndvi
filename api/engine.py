@@ -15,7 +15,7 @@ from ndvi_app.config import APP_VERSION, COLOR_INVALID, DEFAULT_GREY_ZONE
 from ndvi_app.core.geometry import centroids, region_geojson
 from ndvi_app.core.quality import build_rows, colorize, unique_ids
 from ndvi_app.core.session_format import build_session_zip, read_session_zip, saved_settings
-from ndvi_app.core.timeseries import analyse_all
+from ndvi_app.core.timeseries import DEFAULT_SETTINGS, analyse_all
 from ndvi_app.core.vector_io import load_vector_from_bytes
 from ndvi_app.exports import workbook
 from ndvi_app.exports.folium_map import build_map, legend_text
@@ -71,12 +71,14 @@ class Analysis:
         return {"low": c["thresholds"][0], "high": c["thresholds"][1],
                 "min_clear": c["min_clear"], "min_pixels": c["min_pixels"],
                 "min_weight": c["min_weight"], "smooth_days": c["smooth_days"],
-                "grey": list(grey) if grey else None}
+                "grey": list(grey) if grey else None,
+                "uncertain_days": int(c.get("uncertain_days", DEFAULT_SETTINGS["uncertain_days"]))}
 
     @staticmethod
     def _key(s):
         return (s["low"], s["high"], s["min_clear"], s["min_pixels"], s["min_weight"],
-                s["smooth_days"], tuple(s["grey"]) if s.get("grey") else None)
+                s["smooth_days"], tuple(s["grey"]) if s.get("grey") else None,
+                s.get("uncertain_days", DEFAULT_SETTINGS["uncertain_days"]))
 
     # ------------------------------------------------------------ interprétation
     def interpret(self, s):
@@ -91,7 +93,8 @@ class Analysis:
             rows += build_rows(self.ids, self.session["geoinfo"], raw, date_str, s["min_pixels"],
                                s["min_clear"], s["low"], s["high"], weather_days=self.weather_days)
         df_long = pd.DataFrame(rows)
-        ts = {"min_weight": s["min_weight"], "smooth_days": s["smooth_days"]}
+        ts = {"min_weight": s["min_weight"], "smooth_days": s["smooth_days"],
+              "uncertain_days": s.get("uncertain_days", DEFAULT_SETTINGS["uncertain_days"])}
         if s.get("grey"):
             ts["grey_zone"] = tuple(s["grey"])
         synthese, detail, courbes = analyse_all(df_long, self.p_start, self.p_end, s["low"],
@@ -206,6 +209,10 @@ class Analysis:
                 "chrono": _s(r.get("Chronologie")), "trou": _i(r.get("Plus_long_trou_j")),
                 "n_ret": _i(r.get("Mesures_retenues")), "n_ecart": _i(r.get("Mesures_ecartees")),
                 "jsm": _i(r.get("Jours_sans_mesure_fin")), "last": _s(r.get("Derniere_mesure")),
+                # durée de couverture : jours, %, dont incertains, plus longue (j, début, fin)
+                "cov": [_i(r.get("Jours_couverts")), _i(r.get("Part_couverte_pct")),
+                        _i(r.get("Jours_couverts_incertains")), _i(r.get("Couverture_max_j")),
+                        _s(r.get("Couverture_max_debut")), _s(r.get("Couverture_max_fin"))],
                 "curve": curve, "meas": meas,
             })
         days = [str((p0 + pd.Timedelta(days=k)).date()) for k in range(n_days)]
@@ -217,7 +224,8 @@ class Analysis:
         return {"key": self.key, "settings": s, "start": str(self.p_start), "end": str(self.p_end),
                 "nDays": n_days, "dates": sorted({di(d) for d, _ in self.session["raws"]}),
                 "etats": etats, "lectures": lects, "motifs": motifs, "weather": weather,
-                "help": column_help(s["low"], s["high"], tuple(s["grey"]) if s.get("grey") else None),
+                "help": column_help(s["low"], s["high"], tuple(s["grey"]) if s.get("grey") else None,
+                                    s.get("uncertain_days", DEFAULT_SETTINGS["uncertain_days"])),
                 "parcels": parcels}
 
     # ------------------------------------------------------------ fichiers
@@ -226,7 +234,8 @@ class Analysis:
         grey = tuple(s["grey"]) if s.get("grey") else None
         return workbook.results_workbook(
             df_long, syn, det, cou, self.p_start, self.p_end, s["low"], s["high"],
-            column_help(s["low"], s["high"], grey), pick,
+            column_help(s["low"], s["high"], grey,
+                        s.get("uncertain_days", DEFAULT_SETTINGS["uncertain_days"])), pick,
             {"synth": SYNTH_COLS, "detail": DETAIL_COLS, "tech": TECH_COLS},
             weather_days=self.weather_days)
 

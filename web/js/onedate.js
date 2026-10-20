@@ -1,7 +1,7 @@
 /* ---------------------------------------------------------------- analyse à une date
    (comme la page Streamlit) : choix du mois, des dates disponibles, calcul d'une image,
    tableau, carte, exports et vignette. Source : analyse ouverte ou fichier de parcelles chargé. */
-const DEFAULT_S = { low: 0.25, high: 0.5, greyOn: false, grey: [0.2, 0.25], min_clear: 50, min_pixels: 10, min_weight: 0.5, smooth_days: 6 };
+const DEFAULT_S = { low: 0.25, high: 0.5, greyOn: false, grey: [0.2, 0.25], min_clear: 50, min_pixels: 10, min_weight: 0.5, smooth_days: 6, uncertain_days: 15 };
 const OD_DIGITS = { Poids: 2, Humidite_sol: 2, Pluie_3j_mm: 1, Pluie_veille_mm: 1, Tmin_7j_C: 1, Clair_pct: 1, Surface_ha: 2 };
 
 function OneDate({ src, s }) {

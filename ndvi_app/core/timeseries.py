@@ -16,7 +16,7 @@ Chaîne de traitement d'une parcelle :
   3. Phases (sol nu / couvert peu développé / bien développé) selon deux seuils,
      épisodes de moins de N jours fusionnés, baisses rapides repérées.
   4. Synthèse : chronologie en texte, phase en fin de période, plus long trou
-     sans mesure, niveau de confiance.
+     sans mesure, niveau de confiance, durée de couverture du sol (v5.3).
   5. Lecture des mesures sur parcelle peu verte (levée, résidus, sol nu) selon le NDVI,
      le NDTI et l'état du sol (météo + infrarouge moyen) : voir core/soil_reading.py.
 """
@@ -328,12 +328,59 @@ def _grey_zone(curve, zone):
     return {"A_verifier": "Oui" if zone[0] <= v <= zone[1] else "Non"}
 
 
+def coverage(curve, low, span, uncertain_days):
+    """
+    Durée de couverture du sol (NDVI lissé ≥ seuil bas) de la première à la dernière date
+    analysée (span = (début, fin), commun à toutes les parcelles).
+    La courbe va de la 1re à la dernière mesure retenue de la parcelle : avant et après, elle
+    est prolongée à plat ; ces jours sont incertains au-delà de uncertain_days, comme dans la
+    courbe. Jours sans valeur lissée au milieu (trou très long) : interpolation linéaire, comme
+    le tracé. Les jours incertains sont comptés et signalés à part.
+    """
+    empty = {"Jours_couverts": None, "Part_couverte_pct": None, "Jours_couverts_incertains": None,
+             "Couverture_max_j": None, "Couverture_max_debut": None, "Couverture_max_fin": None}
+    if curve.empty or span is None:
+        return empty
+    d0, d1 = pd.Timestamp(span[0]).normalize(), pd.Timestamp(span[1]).normalize()
+    c0, c1 = curve["Date"].iloc[0], curve["Date"].iloc[-1]
+    vals = pd.Series(curve["NDVI_lisse"].to_numpy(dtype=float)).interpolate(limit_area="inside")
+    if vals.isna().all():
+        return empty
+    vals = vals.bfill().ffill().to_numpy()
+    unc = curve["Incertain"].to_numpy(dtype=bool)
+    before, after = max(0, (c0 - d0).days), max(0, (d1 - c1).days)
+    v = np.concatenate([np.full(before, vals[0]), vals, np.full(after, vals[-1])])
+    u = np.concatenate([np.arange(before, 0, -1) > uncertain_days, unc,
+                        np.arange(1, after + 1) > uncertain_days])
+    start = c0 - pd.Timedelta(days=before)
+    covered = v >= low
+    best, best_a, a = 0, None, None
+    for k, cv in enumerate(np.append(covered, False)):
+        if cv and a is None:
+            a = k
+        elif not cv and a is not None:
+            if k - a > best:
+                best, best_a = k - a, a
+            a = None
+    total = (d1 - d0).days + 1
+    n = int(covered.sum())
+    return {
+        "Jours_couverts": n,
+        "Part_couverte_pct": round(100 * n / total) if total > 0 else None,
+        "Jours_couverts_incertains": int((covered & u).sum()),
+        "Couverture_max_j": int(best),
+        "Couverture_max_debut": (start + pd.Timedelta(days=best_a)).date() if best else None,
+        "Couverture_max_fin": (start + pd.Timedelta(days=best_a + best - 1)).date() if best else None,
+    }
+
+
 def analyse_parcel(sub, period_start, period_end, low, high, settings, weather_days=None,
-                   sector_cloud=None):
+                   sector_cloud=None, span=None):
     """
     sub : lignes d'une parcelle (Date datetime64, NDVI, Poids, Statut).
     weather_days : météo journalière (gel avant une baisse rapide) ou None.
     sector_cloud : {Date: bool} nuages sur le secteur pour les mesures basses (sector_cloudiness).
+    span : (première, dernière date analysée), pour la durée de couverture.
     Retourne (detail: DataFrame, courbe: DataFrame, synthese: dict).
     """
     sub = sub.sort_values("Date").reset_index(drop=True)
@@ -388,6 +435,7 @@ def analyse_parcel(sub, period_start, period_end, low, high, settings, weather_d
         **_grey_zone(curve, settings.get("grey_zone")),
         "Etat_sol_fin": (sub.at[last_i, "Etat_sol"] if last_i is not None and has_state
                          else soil.NONE),
+        **coverage(curve, low, span, settings["uncertain_days"]),
     }
     return sub, curve, synth
 
@@ -405,13 +453,14 @@ def analyse_all(df_long, period_start, period_end, low, high, settings=None,
     df = df_long.copy()
     df["Date"] = pd.to_datetime(df["Date"])
     sector = sector_cloudiness(df, settings, positions)
+    span = (df["Date"].min(), df["Date"].max()) if len(df) else None
     by_parcel = defaultdict(dict)
     for (pid, d), v in sector.items():
         by_parcel[pid][d] = v
     synth_rows, details, curves = [], [], []
     for pid, sub in df.groupby("ID", sort=False):
         det, curve, synth = analyse_parcel(sub, period_start, period_end, low, high, settings,
-                                           weather_days, sector_cloud=by_parcel.get(pid))
+                                           weather_days, sector_cloud=by_parcel.get(pid), span=span)
         details.append(det)
         curves.append(curve.assign(ID=pid))
         synth_rows.append({"ID": pid, "Surface_ha": sub["Surface_ha"].iloc[0]

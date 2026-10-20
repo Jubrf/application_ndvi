@@ -77,6 +77,7 @@ class Settings(BaseModel):
     min_weight: float = Field(ge=0, le=1)
     smooth_days: int = Field(ge=1, le=60)
     grey: list[float] | None = None
+    uncertain_days: int = Field(15, ge=5, le=90)   # courbe incertaine au-delà (absent : 15)
 
     def as_dict(self):
         d = self.model_dump()

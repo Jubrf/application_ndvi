@@ -71,6 +71,9 @@ def saved_settings(s, calc_params, geoms_key):
         "min_clear": int(s["min_clear"]), "min_pixels": int(s["min_pixels"]),
         "min_weight": float(s["min_weight"]), "smooth_days": int(s["smooth_days"]),
         **({"grey_zone": list(s["grey"])} if s.get("grey") else {}),
+        # v5.3 : écrit seulement s'il diffère de 15 jours (fichier inchangé sinon)
+        **({"uncertain_days": int(s["uncertain_days"])}
+           if s.get("uncertain_days", 15) != 15 else {}),
     }
 
 

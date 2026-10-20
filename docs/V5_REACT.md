@@ -39,6 +39,13 @@ cartes, analyse à une date) sont identiques à ceux de Streamlit (banc de tests
   panneau « Réglages » ; fiche avec courbe, météo (pluie, gel, humidité du sol), NDTI,
   vignette Sentinel-2 (naturelles / infrarouge), aide à la lecture, mesures.
   Valeurs du jour survolé affichées sous chaque graphique (sinon celles du repère bleu).
+- Durée de couverture du sol (v5.3) : jours avec un NDVI lissé ≥ seuil sol nu / couvert, de la
+  première à la dernière date analysée (courbe prolongée à plat avant la 1re et après la
+  dernière mesure retenue), part en %, dont jours incertains, plus longue période couverte
+  (début, fin). Fiche, Tableaux, Excel (fin de la Synthèse). Calculée à l'ouverture : les
+  analyses enregistrées l'affichent sans nouveau calcul Earth Engine.
+- Délai de courbe incertaine réglable (15 jours par défaut ; écrit dans le fichier seulement
+  s'il diffère de 15, fichier lisible par Streamlit qui l'ignore).
 - Analyse à une date : image d'une date sur l'analyse ouverte ou les parcelles chargées.
 - Exports : Excel, Enregistrer (.zip), cartes KML et HTML.
 - Météo absente d'un fichier : récupérée à l'ouverture (bouton « Actualiser la météo »).
