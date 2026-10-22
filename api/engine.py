@@ -202,7 +202,8 @@ class Analysis:
                              _s(m.get("Fiabilite"))])
             parcels.append({
                 "id": pid, "ha": _r(r.get("Surface_ha")),
-                "ndvi_fin": _r(r.get("NDVI_fin")), "phase_fin": _s(r.get("Phase_fin")),
+                "ndvi_fin": _r(r.get("NDVI_fin_lisse")), "ndvi_brut": _r(r.get("NDVI_fin_brut")),
+                "phase_fin": _s(r.get("Phase_fin")),
                 "a_verif": _s(r.get("A_verifier")),
                 "conf": _s(r.get("Confiance")), "lect_fin": _s(r.get("Lecture_fin")),
                 "etat_fin": _s(r.get("Etat_sol_fin")), "drops": _s(r.get("Baisses_rapides")),

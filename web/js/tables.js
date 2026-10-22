@@ -47,7 +47,8 @@ function Overview({ s, go, sel }) {
   ];
   const evoCols = [...base,
     { k: "evo", label: `NDVI et phases (${fmtDay(0)} → ${fmtDay(D.nDays - 1)})`, nosort: 1, render: (r) => html`<${EvoCell} p=${r.p} s=${s} />` },
-    { k: "nf", label: "NDVI fin", num: 1, sort: (r) => r.p.ndvi_fin, render: (r) => fr(r.p.ndvi_fin) },
+    { k: "nf", label: "NDVI fin lissé", num: 1, sort: (r) => r.p.ndvi_fin, render: (r) => fr(r.p.ndvi_fin) },
+    { k: "nb", label: "NDVI fin brut", num: 1, sort: (r) => r.p.ndvi_brut, render: (r) => fr(r.p.ndvi_brut) },
     { k: "pf", label: "Phase fin", sort: (r) => phaseFin(r.p, s), render: phCell },
     { k: "lf", label: "Lecture fin", sort: (r) => r.p.lect_fin, render: (r) => r.p.lect_fin },
     { k: "cf", label: "Confiance", sort: (r) => CONF_ORDER.indexOf(r.p.conf), render: (r) => r.p.conf },
@@ -57,7 +58,8 @@ function Overview({ s, go, sel }) {
   ];
   const synthCols = [...base,
     { k: "pf", label: "Phase fin", sort: (r) => phaseFin(r.p, s), render: phCell },
-    { k: "nf", label: "NDVI fin", num: 1, sort: (r) => r.p.ndvi_fin, render: (r) => fr(r.p.ndvi_fin) },
+    { k: "nf", label: "NDVI fin lissé", num: 1, sort: (r) => r.p.ndvi_fin, render: (r) => fr(r.p.ndvi_fin) },
+    { k: "nb", label: "NDVI fin brut", num: 1, sort: (r) => r.p.ndvi_brut, render: (r) => fr(r.p.ndvi_brut) },
     { k: "lf", label: "Lecture fin", sort: (r) => r.p.lect_fin, render: (r) => r.p.lect_fin },
     { k: "es", label: "État du sol fin", sort: (r) => r.p.etat_fin, render: (r) => r.p.etat_fin },
     { k: "cf", label: "Confiance", sort: (r) => CONF_ORDER.indexOf(r.p.conf), render: (r) => r.p.conf },
@@ -77,13 +79,13 @@ function Overview({ s, go, sel }) {
     { k: "cd", label: "Couverture : début", sort: (r) => r.p.cov[4], render: (r) => isoFr(r.p.cov[4]) },
     { k: "cn", label: "Couverture : fin", sort: (r) => r.p.cov[5], render: (r) => isoFr(r.p.cov[5]) },
   ];
-  const HELP_COL = { nf: "NDVI_fin", pf: "Phase_fin", lf: "Lecture_fin", es: "Etat_sol_fin", cf: "Confiance",
+  const HELP_COL = { nf: "NDVI_fin_lisse", nb: "NDVI_fin_brut", pf: "Phase_fin", lf: "Lecture_fin", es: "Etat_sol_fin", cf: "Confiance",
     ch: "Chronologie", br: "Baisses_rapides", nr: "Mesures_retenues", ne: "Mesures_ecartees", tr: "Plus_long_trou_j",
     dm: "Derniere_mesure", js: "Jours_sans_mesure_fin", ha: "Surface_ha",
     jc: "Jours_couverts", pc: "Part_couverte_pct", ji: "Jours_couverts_incertains", cm: "Couverture_max_j",
     cd: "Couverture_max_debut", cn: "Couverture_max_fin", td: "Plus_long_trou_debut", tf: "Plus_long_trou_fin" };
   [...evoCols, ...synthCols].forEach((c) => { if (HELP_COL[c.k]) c.help = H(HELP_COL[c.k]); });
-  if (s.greyOn) synthCols.splice(4, 0, { k: "av", label: "À vérifier", help: H("A_verifier"),
+  if (s.greyOn) synthCols.splice(5, 0, { k: "av", label: "À vérifier", help: H("A_verifier"),
     sort: (r) => (inGrey(r.p, s) ? 0 : 1), render: (r) => (r.p.curve ? (inGrey(r.p, s) ? "Oui" : "Non") : "—") });
   const tint = (v) => v == null ? { color: "#9aa39c" } : v < s.low ? { background: "#f6d5d2", color: "#7a1c14" }
     : v < s.high ? { background: "#e4f2d0", color: "#3d5a12" } : { background: "#cdebd8", color: "#0e5a31" };

@@ -78,7 +78,7 @@ def _fiche(ctx, res):
 
     n_dates = res.df_long["Date"].nunique()
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("NDVI lissé en fin de période", fmt(s_row["NDVI_fin"], 2).replace(".", ","), border=True)
+    m1.metric("NDVI lissé en fin de période", fmt(s_row["NDVI_fin_lisse"], 2).replace(".", ","), border=True)
     m2.metric("Mesures retenues", f"{s_row['Mesures_retenues']} / {n_dates}", border=True)
     m3.metric("Plus long trou sans mesure", f"{s_row['Plus_long_trou_j']} j", border=True)
     m4.metric("Baisse rapide", "aucune" if s_row["Baisses_rapides"] == "—" else s_row["Baisses_rapides"],

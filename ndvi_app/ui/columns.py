@@ -12,7 +12,7 @@ TECH_COLS = ["ID", "Date", "Statut", "NDVI_brut", "NDVI_median", "NDVI_pondere",
              "NDVI_ecart_type", "EVI2_median", "NDTI_median", "SWIR1_median", "Poids", "Score_clarte", "Clair_pct",
              "Pixels_total", "Pixels_clairs", "Pixels_utilises", "Outliers_exclus",
              "Surface_ha", "Buffer_m", "Satellite"]
-SYNTH_COLS = ["ID", "Phase_fin", "NDVI_fin", "A_verifier", "Lecture_fin", "Etat_sol_fin", "Confiance",
+SYNTH_COLS = ["ID", "Phase_fin", "NDVI_fin_lisse", "NDVI_fin_brut", "A_verifier", "Lecture_fin", "Etat_sol_fin", "Confiance",
               "Chronologie", "Baisses_rapides",
               "Mesures_retenues", "Mesures_ecartees", "Plus_long_trou_j", "Derniere_mesure",
               "Jours_sans_mesure_fin", "Surface_ha",
@@ -107,7 +107,10 @@ def column_help(low, high, grey=None, uncertain_days=15):
         "SWIR1_median": "Médiane de la réflectance B11 (infrarouge moyen, 1 610 nm).",
         # Synthèse temporelle
         "Phase_fin": "Phase de la courbe lissée à la dernière mesure retenue (état « à l'instant T »).",
-        "NDVI_fin": "NDVI lissé à la dernière mesure retenue.",
+        "NDVI_fin_lisse": "NDVI de la courbe lissée à la dernière mesure retenue (sert à la phase "
+                          "en fin de période et à la zone grise).",
+        "NDVI_fin_brut": "NDVI médian mesuré de la dernière mesure retenue (valeur de l'image, sans "
+                         "lissage ; date dans Derniere_mesure).",
         "Confiance": "Bonne : ≥ 3 mesures retenues et aucun trou de plus de 20 jours. "
                      "Moyenne : ≥ 2 mesures et trou ≤ 35 jours. Faible sinon.",
         "Chronologie": "Succession des phases de la courbe lissée, épisodes de moins de 10 jours "

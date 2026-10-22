@@ -110,7 +110,7 @@ def _evolution_table(shown, res, settings, key):
         rows.append({
             "ID": r["ID"], "Surface_ha": r["Surface_ha"],
             "Evolution": phase_evolution_uri(c, res.p_start, res.p_end, settings.low, settings.high),
-            "NDVI_fin": r["NDVI_fin"], "Phase_fin": r["Phase_fin"] if pd.notna(r["Phase_fin"]) else NO_PHASE,
+            "NDVI_fin_lisse": r["NDVI_fin_lisse"], "Phase_fin": r["Phase_fin"] if pd.notna(r["Phase_fin"]) else NO_PHASE,
             **({"A_verifier": r["A_verifier"]} if "A_verifier" in r else {}),
             "Lecture_fin": r.get("Lecture_fin", "—"),
             "Confiance": r["Confiance"], "Baisses_rapides": r["Baisses_rapides"],
@@ -128,7 +128,7 @@ def _evolution_table(shown, res, settings, key):
                  "courbe (avant la 1re ou après la dernière mesure retenue). Courbe en pointillé "
                  "et teinte atténuée : interpolée à plus de 15 jours d'une mesure. Traits : 1er "
                  "de chaque mois, même échelle de temps pour toutes les parcelles."),
-        "NDVI_fin": st.column_config.NumberColumn("NDVI fin", format="%.2f"),
+        "NDVI_fin_lisse": st.column_config.NumberColumn("NDVI fin", format="%.2f"),
         "Phase_fin": st.column_config.TextColumn("Phase fin", width="medium"),
         "A_verifier": st.column_config.TextColumn(
             "À vérifier", help="NDVI en fin de période dans la zone grise (barre latérale) : "
