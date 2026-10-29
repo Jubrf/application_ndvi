@@ -60,6 +60,10 @@ async def password_gate(request: Request, call_next):
     response = await call_next(request)
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
+    else:
+        # interface : le navigateur revérifie à chaque chargement (réponse 304 si inchangé),
+        # une nouvelle version est donc visible dès le déploiement, sans Ctrl + F5
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 
