@@ -98,6 +98,12 @@ const savedKey = (str) => (str ? JSON.stringify(withUnc(JSON.parse(str))) : str)
 const spanDays = () => (D.dates.length ? D.dates[D.dates.length - 1] - D.dates[0] + 1 : 0);
 const isoFr = (iso) => (iso ? iso.split("-").reverse().join("/") : "—");
 const isoFrShort = (iso) => (iso ? iso.slice(8, 10) + "/" + iso.slice(5, 7) : "—");
+/* Images de l'analyse plus récentes que la dernière mesure retenue (sans mesure pour la parcelle) */
+const missingAfter = (p) => {
+  if (!p.last) return 0;
+  const k = Math.round((new Date(p.last + "T00:00:00") - day0) / 864e5);
+  return D.dates.filter((d) => d > k).length;
+};
 /* Courbe incertaine au jour k (entre deux mesures retenues espacées de plus de N jours) */
 const uncAt = (p, k) => !!(p.curve && p.curve.u.some(([a, b]) => k >= a && k <= b));
 /* Actions de l'application (renseignées par App), appelées depuis les pages :

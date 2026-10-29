@@ -175,7 +175,7 @@ function WeatherBlock({ day, setDay, W }) {
   </div>`;
 }
 
-function Detail({ s, sel, setSel, ids, showMap, setShowMap, visible }) {
+function Detail({ s, sel, setSel, ids, showMap, setShowMap, visible, onMap }) {
   const p = D.parcels.find((x) => x.id === sel) || D.parcels[0];
   const i = ids.indexOf(p.id);
   const step = (d) => ids.length && setSel(ids[((i < 0 ? 0 : i) + d + ids.length) % ids.length]);
@@ -211,6 +211,7 @@ function Detail({ s, sel, setSel, ids, showMap, setShowMap, visible }) {
         <button class="tool" onClick=${() => step(-1)} title="Parcelle précédente (↑)">▲</button>
         <button class="tool" onClick=${() => step(1)} title="Parcelle suivante (↓)">▼</button>
         <button class=${"tool " + (showMap ? "act" : "")} onClick=${() => setShowMap(!showMap)}>${showMap ? "Masquer la carte" : "Afficher la carte"}</button>
+        ${onMap && html`<button class="tool" title="Ouvre l'onglet Carte centré sur cette parcelle" onClick=${() => onMap(p.id)}>Voir sur la carte</button>`}
       </div>
     </div>
     <div class="metrics">
@@ -272,7 +273,7 @@ function Detail({ s, sel, setSel, ids, showMap, setShowMap, visible }) {
   </section>`;
 }
 
-function Review({ s, sel, setSel }) {
+function Review({ s, sel, setSel, onMap }) {
   const all = useMemo(() => Object.fromEntries(D.parcels.map((p) => [p.id, p])), [D]);
   const [f, setF] = useState({ q: "", phase: "all", conf: new Set(CONF_ORDER), grey: false, sort: "nom" });
   const [curves, setCurves] = useState(true);
@@ -296,6 +297,6 @@ function Review({ s, sel, setSel }) {
   return html`<div class=${"review " + (collapsed ? "folded" : "")}>
     <${ParcelList} s=${s} ids=${ids} all=${all} sel=${sel} setSel=${setSel} f=${f} setF=${setF}
       curves=${curves} setCurves=${setCurves} collapsed=${collapsed} setCollapsed=${setCollapsed} />
-    <${Detail} s=${s} sel=${sel} setSel=${setSel} ids=${ids} showMap=${showMap} setShowMap=${setShowMap} visible=${visible} />
+    <${Detail} s=${s} sel=${sel} setSel=${setSel} ids=${ids} showMap=${showMap} setShowMap=${setShowMap} visible=${visible} onMap=${onMap} />
   </div>`;
 }

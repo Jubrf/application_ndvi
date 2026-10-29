@@ -35,7 +35,7 @@ function Sidebar({ s, setS, info, reset, busy }) {
     <button class="tool" onClick=${reset}>Revenir aux réglages du fichier</button>
     <h3 class="lock">Calcul, verrouillé</h3>
     <p class="note">Fixé par l'analyse ouverte : buffer ${L.buffer_m} m, Cloud Score+ ${fr(L.cs_threshold)}, marge nuages ${L.cloud_buffer_m} m, valeurs aberrantes ${fr(L.iqr_k, 1)} × IQR.</p>
-    <p class="note version">Interface React v5.4 · moteur ${info.server_version}</p>
+    <p class="note version">Interface React v5.6 · moteur ${info.server_version}</p>
   </aside>`;
 }
 
@@ -53,6 +53,7 @@ function App() {
   const [note, setNote] = useState(null);
   const [page, setPage] = useState("projet");
   const [sel, setSel] = useState(null);
+  const [focus, setFocus] = useState(null);       // parcelle à cadrer sur la carte
   const [drawer, setDrawer] = useState(false);
   const [dl, setDl] = useState(null);
   const [gee, setGee] = useState({ ok: false, message: null });
@@ -230,7 +231,9 @@ function App() {
     return () => window.removeEventListener("keydown", k);
   }, [drawer]);
 
-  const go = (pg, id) => { if (id) setSel(id); if (pg === "fiche") pg = "revue"; setPage(pg); window.scrollTo(0, 0); };
+  const go = (pg, id) => { if (id) setSel(id); if (pg === "fiche") pg = "revue"; setFocus(null); setPage(pg); window.scrollTo(0, 0); };
+  /* « Voir sur la carte » (fiche) : onglet Carte centré et zoomé sur la parcelle */
+  const onMap = (id) => { setSel(id); setFocus(id); setPage("carte"); window.scrollTo(0, 0); };
   const ready = !!(info && data && s);
   const oneSrc = ready ? { kind: "analysis", label: `${info.file} (${info.n_parcels} parcelles)`, geometry: geo,
       call: (fn) => withKey((k) => fn({ type: "analysis", key: k })) }
@@ -273,9 +276,9 @@ function App() {
     ${restoring && !ready && html`<div class="page"><p class="cap">Ouverture de l'analyse gardée dans le navigateur…</p></div>`}
     ${pg === "projet" && !(restoring && !ready) && html`<${Projet} info=${ready ? info : null} s=${s} go=${go} onFile=${openFile} busy=${opening}
       gee=${gee} retryGee=${() => checkGee(true)} pset=${pset} setPset=${setPset} psetCall=${psetCall} onResult=${onResult} close=${close} dirty=${dirty} />`}
-    ${pg === "revue" && html`<${Review} key=${info.key} s=${s} sel=${sel} setSel=${setSel} />`}
+    ${pg === "revue" && html`<${Review} key=${info.key} s=${s} sel=${sel} setSel=${setSel} onMap=${onMap} />`}
     ${pg === "ensemble" && html`<${Overview} key=${info.key} s=${s} go=${go} sel=${sel} />`}
-    ${pg === "carte" && html`<${MapPage} key=${info.key} s=${s} sel=${sel} setSel=${setSel} go=${go} dl=${dl} />`}
+    ${pg === "carte" && html`<${MapPage} key=${info.key} s=${s} sel=${sel} setSel=${setSel} go=${go} dl=${dl} focus=${focus} />`}
     ${pg === "date" && html`<${OneDate} key=${oneSrc.kind + (ready ? info.key : pset.info.key)} src=${oneSrc} s=${ready ? s : null} />`}
   </div>`;
 }

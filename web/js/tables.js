@@ -1,6 +1,8 @@
 /* ---------------------------------------------------------------- tableau triable générique */
-function SortTable({ cols, rows, onRow, sel, rowH, sticky = 1 }) {
-  const [sort, setSort] = useState({ k: null, dir: 1 });
+const natCmp = (a, b) => (typeof a === "string" && typeof b === "string"
+  ? a.localeCompare(b, "fr", { numeric: true, sensitivity: "base" }) : a > b ? 1 : a < b ? -1 : 0);
+function SortTable({ cols, rows, onRow, sel, rowH, sticky = 1, initialSort = null }) {
+  const [sort, setSort] = useState(initialSort || { k: null, dir: 1 });
   const sorted = useMemo(() => {
     if (!sort.k) return rows;
     const c = cols.find((x) => x.k === sort.k);
@@ -10,7 +12,7 @@ function SortTable({ cols, rows, onRow, sel, rowH, sticky = 1 }) {
       if (va == null && vb == null) return 0;
       if (va == null) return 1;
       if (vb == null) return -1;
-      return (va > vb ? 1 : va < vb ? -1 : 0) * sort.dir;
+      return natCmp(va, vb) * sort.dir;
     });
   }, [rows, sort, cols]);
   return html`<div class="tablewrap"><table class="tbl">
@@ -45,10 +47,14 @@ function Overview({ s, go, sel }) {
     { k: "id", label: "Parcelle", render: (r) => html`<b>${r.id}</b>${inGrey(r.p, s) ? html`<i class="flag" title="À vérifier">?</i>` : ""}` },
     { k: "ha", label: "Surface (ha)", num: 1, sort: (r) => r.p.ha, render: (r) => fr(r.p.ha) },
   ];
+  const dateFinCol = { k: "dm", label: "Date NDVI fin", sort: (r) => r.p.last || "",
+    help: "Date de la dernière mesure retenue (celle du NDVI fin). En orange : nombre d'images de l'analyse, plus récentes, sans mesure retenue pour cette parcelle (nuages, mesure écartée).",
+    render: (r) => { const n = missingAfter(r.p); return r.p.last ? html`${isoFrShort(r.p.last)}${n ? html`<span class="miss">${` · ${n} date${n > 1 ? "s" : ""} manquante${n > 1 ? "s" : ""}`}</span>` : ""}` : "—"; } };
   const evoCols = [...base,
     { k: "evo", label: `NDVI et phases (${fmtDay(0)} → ${fmtDay(D.nDays - 1)})`, nosort: 1, render: (r) => html`<${EvoCell} p=${r.p} s=${s} />` },
     { k: "nf", label: "NDVI fin lissé", num: 1, sort: (r) => r.p.ndvi_fin, render: (r) => fr(r.p.ndvi_fin) },
     { k: "nb", label: "NDVI fin brut", num: 1, sort: (r) => r.p.ndvi_brut, render: (r) => fr(r.p.ndvi_brut) },
+    dateFinCol,
     { k: "pf", label: "Phase fin", sort: (r) => phaseFin(r.p, s), render: phCell },
     { k: "lf", label: "Lecture fin", sort: (r) => r.p.lect_fin, render: (r) => r.p.lect_fin },
     { k: "cf", label: "Confiance", sort: (r) => CONF_ORDER.indexOf(r.p.conf), render: (r) => r.p.conf },
@@ -60,6 +66,7 @@ function Overview({ s, go, sel }) {
     { k: "pf", label: "Phase fin", sort: (r) => phaseFin(r.p, s), render: phCell },
     { k: "nf", label: "NDVI fin lissé", num: 1, sort: (r) => r.p.ndvi_fin, render: (r) => fr(r.p.ndvi_fin) },
     { k: "nb", label: "NDVI fin brut", num: 1, sort: (r) => r.p.ndvi_brut, render: (r) => fr(r.p.ndvi_brut) },
+    dateFinCol,
     { k: "lf", label: "Lecture fin", sort: (r) => r.p.lect_fin, render: (r) => r.p.lect_fin },
     { k: "es", label: "État du sol fin", sort: (r) => r.p.etat_fin, render: (r) => r.p.etat_fin },
     { k: "cf", label: "Confiance", sort: (r) => CONF_ORDER.indexOf(r.p.conf), render: (r) => r.p.conf },
@@ -70,7 +77,6 @@ function Overview({ s, go, sel }) {
     { k: "tr", label: "Plus long trou (j)", num: 1, sort: (r) => r.p.trou, render: (r) => r.p.trou },
     { k: "td", label: "Trou : début", sort: (r) => r.p.trou_d[0], render: (r) => isoFr(r.p.trou_d[0]) },
     { k: "tf", label: "Trou : fin", sort: (r) => r.p.trou_d[1], render: (r) => isoFr(r.p.trou_d[1]) },
-    { k: "dm", label: "Dernière mesure", sort: (r) => r.p.last, render: (r) => r.p.last ? r.p.last.split("-").reverse().join("/") : "—" },
     { k: "js", label: "Jours sans mesure fin", num: 1, sort: (r) => r.p.jsm, render: (r) => r.p.jsm ?? "—" },
     { k: "jc", label: "Jours couverts", num: 1, sort: (r) => r.p.cov[0], render: (r) => r.p.cov[0] ?? "—" },
     { k: "pc", label: "Part couverte (%)", num: 1, sort: (r) => r.p.cov[1], render: (r) => r.p.cov[1] ?? "—" },
@@ -81,11 +87,11 @@ function Overview({ s, go, sel }) {
   ];
   const HELP_COL = { nf: "NDVI_fin_lisse", nb: "NDVI_fin_brut", pf: "Phase_fin", lf: "Lecture_fin", es: "Etat_sol_fin", cf: "Confiance",
     ch: "Chronologie", br: "Baisses_rapides", nr: "Mesures_retenues", ne: "Mesures_ecartees", tr: "Plus_long_trou_j",
-    dm: "Derniere_mesure", js: "Jours_sans_mesure_fin", ha: "Surface_ha",
+    js: "Jours_sans_mesure_fin", ha: "Surface_ha",
     jc: "Jours_couverts", pc: "Part_couverte_pct", ji: "Jours_couverts_incertains", cm: "Couverture_max_j",
     cd: "Couverture_max_debut", cn: "Couverture_max_fin", td: "Plus_long_trou_debut", tf: "Plus_long_trou_fin" };
   [...evoCols, ...synthCols].forEach((c) => { if (HELP_COL[c.k]) c.help = H(HELP_COL[c.k]); });
-  if (s.greyOn) synthCols.splice(5, 0, { k: "av", label: "À vérifier", help: H("A_verifier"),
+  if (s.greyOn) synthCols.splice(6, 0, { k: "av", label: "À vérifier", help: H("A_verifier"),
     sort: (r) => (inGrey(r.p, s) ? 0 : 1), render: (r) => (r.p.curve ? (inGrey(r.p, s) ? "Oui" : "Non") : "—") });
   const tint = (v) => v == null ? { color: "#9aa39c" } : v < s.low ? { background: "#f6d5d2", color: "#7a1c14" }
     : v < s.high ? { background: "#e4f2d0", color: "#3d5a12" } : { background: "#cdebd8", color: "#0e5a31" };
@@ -118,7 +124,7 @@ function Overview({ s, go, sel }) {
         html`<button key=${k} class=${view === k ? "on" : ""} onClick=${() => setView(k)}>${l}</button>`)}</div>
       <span class="cap">${shown.length} parcelle(s) sur ${D.parcels.length}. Cliquer sur une ligne ouvre la fiche ; cliquer sur un en-tête trie.</span>
     </div>
-    <${SortTable} key=${view} cols=${view === "evo" ? evoCols : view === "val" ? valCols : synthCols} rows=${rows}
+    <${SortTable} key=${view} initialSort=${{ k: "id", dir: 1 }} cols=${view === "evo" ? evoCols : view === "val" ? valCols : synthCols} rows=${rows}
       onRow=${(id) => go("fiche", id)} sel=${sel} rowH=${view === "evo" ? 66 : null} />
   </div>`;
 }

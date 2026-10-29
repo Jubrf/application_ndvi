@@ -138,6 +138,8 @@ h3 { font-size: 13px; font-weight: 600; margin: 14px 0 4px; }
 .tile { position: absolute; user-select: none; pointer-events: none; }
 .overlay { position: absolute; inset: 0; }
 .parcel { cursor: pointer; transition: fill .25s; }
+.plabel { font: 600 11px var(--font); fill: #fff; stroke: #10201a; stroke-width: 3px; paint-order: stroke; stroke-linejoin: round; text-anchor: middle; pointer-events: none; }
+.miss { color: var(--warn); font-weight: 600; }
 .map-date { position: absolute; left: 12px; top: 10px; background: rgba(255,255,255,.92); border-radius: 8px; padding: 5px 10px; display: flex; flex-direction: column; line-height: 1.2; }
 .map-date strong { font-size: 16px; font-weight: 600; }
 .map-date span { font-size: 11px; color: var(--muted); }

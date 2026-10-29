@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------- page Carte (phases à une date) */
-function MapPage({ s, sel, setSel, go, dl }) {
+function MapPage({ s, sel, setSel, go, dl, focus }) {
   const [day, setDay] = useState(LAST_DATE);
   const counts = { nu: 0, peu: 0, bien: 0, none: 0 };
   D.parcels.forEach((p) => counts[phaseOf(curveAt(p, day), s)]++);
@@ -18,7 +18,7 @@ function MapPage({ s, sel, setSel, go, dl }) {
       <span class="cap">Image ${i + 1} sur ${D.dates.length}. Le curseur recolore la carte instantanément.</span>
     </div>
     <div class="mapgrid">
-      <${PhaseMap} s=${s} day=${day} sel=${sel} setSel=${setSel} />
+      <${PhaseMap} s=${s} day=${day} sel=${sel} setSel=${setSel} focus=${focus} />
       ${P && html`<div class="box mini">
         <h2>${P.id}</h2>
         <p class="cap">${fr(P.ha)} ha, NDVI lissé au ${fmtShort(day)} : <b>${fr(curveAt(P, day))}</b></p>
