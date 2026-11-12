@@ -350,6 +350,20 @@ THUMB_VIS = {
 
 
 @cache_data(show_spinner=False, ttl=2 * 3600, max_entries=300)
+def day_sources(date_str, parcel_key, _parcel_geojson):
+    """Nombre d'images Sentinel-2 et de scores Cloud Score+ du jour sur la parcelle (et ses abords).
+    Cloud Score+ est publié avec quelques jours de retard, parfois pas du tout pour une tuile :
+    le masque repose alors sur la seule classification SCL de l'ESA."""
+    region = ee.Geometry(_parcel_geojson).buffer(THUMB_MARGIN_M).bounds()
+    d0 = ee.Date(date_str)
+    n = ee.Dictionary({
+        "s2": ee.ImageCollection(S2_COLLECTION).filterBounds(region).filterDate(d0, d0.advance(1, "day")).size(),
+        "cs": ee.ImageCollection(CSPLUS_COLLECTION).filterBounds(region).filterDate(d0, d0.advance(1, "day")).size(),
+    }).getInfo()
+    return {"s2": int(n["s2"]), "cs": int(n["cs"])}
+
+
+@cache_data(show_spinner=False, ttl=2 * 3600, max_entries=300)
 def parcel_thumbnail(date_str, parcel_key, params_t, _parcel_geojson, _analysis_geojson,
                      show_mask=True, mode=THUMB_NATURAL):
     """
@@ -359,6 +373,11 @@ def parcel_thumbnail(date_str, parcel_key, params_t, _parcel_geojson, _analysis_
       · contour blanc : parcelle · contour jaune : zone analysée (après buffer).
     """
     vis = THUMB_VIS.get(mode, THUMB_VIS[THUMB_NATURAL])
+    src = day_sources(date_str, parcel_key, _parcel_geojson)
+    if not src["s2"]:
+        raise ValueError(f"aucune image Sentinel-2 du {date_str} n'est disponible dans Earth Engine "
+                         "pour cette parcelle (image retirée ou en cours de retraitement). "
+                         "Les valeurs déjà calculées pour cette date restent valables.")
     params = dict(params_t)
     parcel = ee.Geometry(_parcel_geojson)
     region = parcel.buffer(THUMB_MARGIN_M).bounds()
@@ -368,7 +387,11 @@ def parcel_thumbnail(date_str, parcel_key, params_t, _parcel_geojson, _analysis_
     img = (s2.select(vis["bands"]).mosaic()
            .visualize(min=vis["min"], max=vis["max"], gamma=vis["gamma"]))
     if show_mask:
-        masked = prepared.select("CLEAR").max().eq(0).selfMask()
+        # image vide masquée ajoutée : max() garde une bande même si la jointure ne rend rien
+        # (sinon « Image.eq: If one image has no bands… »)
+        empty = ee.Image.constant(1).toByte().rename("CLEAR").updateMask(ee.Image.constant(0))
+        clear = prepared.select("CLEAR").map(lambda i: ee.Image(i).toByte()).merge(ee.ImageCollection([empty]))
+        masked = clear.max().eq(0).selfMask()
         img = img.blend(masked.visualize(palette=[vis["mask"]], opacity=0.45))
     outline = (ee.Image().byte()
                .paint(ee.FeatureCollection([ee.Feature(parcel)]), 1, 2)

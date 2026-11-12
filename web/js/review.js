@@ -89,7 +89,7 @@ function ThumbBox({ source, pid, options, defaultDate, call }) {
     setLoading(true); setErr(null);
     call((src) => postJSON("/api/thumbnail", { source: src, pid, date, mode, mask }))
       .then((r) => r.json())
-      .then((j) => { if (id === req.current) setImg({ url: j.url, date, mode, mask }); })
+      .then((j) => { if (id === req.current) setImg({ url: j.url, date, mode, mask, csMissing: !!j.cs_missing }); })
       .catch((e) => { if (id === req.current) setErr(e.message); })
       .finally(() => { if (id === req.current) setLoading(false); });
   }, [active, date, mode, mask, pid]);
@@ -113,6 +113,7 @@ function ThumbBox({ source, pid, options, defaultDate, call }) {
     </div>`}
     ${err && html`<p class="cap errc">Erreur Earth Engine (image) : ${err}</p>`}
     ${img && html`<p class="cap">Sentinel-2 du ${fmtIso(img.date)}, ${img.mode === "infrarouge" ? "fausses couleurs infrarouges (végétation verte en rouge)" : "couleurs naturelles"}${" "}· contour blanc : parcelle · contour jaune : zone analysée (après buffer)${img.mask ? (img.mode === "infrarouge" ? " · cyan" : " · magenta") + " : pixels masqués" : ""}. Lien temporaire (quelques heures).</p>`}
+    ${img && img.csMissing && html`<p class="cap warnc">Score de nuages Cloud Score+ pas encore publié pour cette image : masque selon la seule classification de l'ESA (nuages et ombres moins bien détectés, brume souvent manquée). Il apparaît en général sous quelques jours.</p>`}
   </div>`;
 }
 

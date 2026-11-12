@@ -332,7 +332,8 @@ def thumbnail(req: ThumbRequest):
     src, params_t = _src(req.source)
     if req.pid not in src.ids:
         raise HTTPException(404, "parcelle inconnue.")
-    return {"url": _gee_call(projects.thumbnail, src, params_t, req.pid, req.date, req.mode, req.mask)}
+    url, cs_missing = _gee_call(projects.thumbnail, src, params_t, req.pid, req.date, req.mode, req.mask)
+    return {"url": url, "cs_missing": cs_missing}
 
 
 class OneDateRequest(BaseModel):

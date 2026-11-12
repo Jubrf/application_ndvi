@@ -306,9 +306,11 @@ def thumbnail(src, params_t, pid, date_str, mode, show_mask):
     gee_conn.ensure()
     idx = src.ids.index(pid)
     extra = {} if mode == gee.THUMB_NATURAL else {"mode": mode}
-    return gee.parcel_thumbnail(date_str, f"{src.geoms_key}|{idx}", params_t,
-                                outline_geojson(src.features[idx]["geometry"]),
-                                src.geoinfo[idx]["geojson"], show_mask, **extra)
+    key, outline = f"{src.geoms_key}|{idx}", outline_geojson(src.features[idx]["geometry"])
+    url = gee.parcel_thumbnail(date_str, key, params_t, outline,
+                               src.geoinfo[idx]["geojson"], show_mask, **extra)
+    # score de nuages absent (pas encore publié) : masque sur la classification ESA seule
+    return url, gee.day_sources(date_str, key, outline)["cs"] == 0
 
 
 # ---------------------------------------------------------------- analyse à une date
