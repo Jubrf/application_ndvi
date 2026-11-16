@@ -308,9 +308,11 @@ def thumbnail(src, params_t, pid, date_str, mode, show_mask):
     extra = {} if mode == gee.THUMB_NATURAL else {"mode": mode}
     key, outline = f"{src.geoms_key}|{idx}", outline_geojson(src.features[idx]["geometry"])
     url = gee.parcel_thumbnail(date_str, key, params_t, outline,
-                               src.geoinfo[idx]["geojson"], show_mask, **extra)
+                               src.geoinfo[idx]["geojson"], show_mask, _search_geojson=src.region, **extra)
     # score de nuages absent (pas encore publié) : masque sur la classification ESA seule
-    return url, gee.day_sources(date_str, key, outline)["cs"] == 0
+    info = gee.day_sources(date_str, key, outline, src.region)
+    log(f"Vignette {pid} {date_str} : {info}")
+    return url, info["cs"] == 0
 
 
 # ---------------------------------------------------------------- analyse à une date

@@ -350,22 +350,26 @@ THUMB_VIS = {
 
 
 @cache_data(show_spinner=False, ttl=2 * 3600, max_entries=300)
-def day_sources(date_str, parcel_key, _parcel_geojson):
-    """Nombre d'images Sentinel-2 et de scores Cloud Score+ du jour sur la parcelle (et ses abords).
-    Cloud Score+ est publié avec quelques jours de retard, parfois pas du tout pour une tuile :
-    le masque repose alors sur la seule classification SCL de l'ESA."""
-    region = ee.Geometry(_parcel_geojson).buffer(THUMB_MARGIN_M).bounds()
+def day_sources(date_str, parcel_key, _parcel_geojson, _search_geojson=None):
+    """Images Sentinel-2 et scores Cloud Score+ du jour : sur la zone de recherche (zone de
+    l'analyse, comme pour les statistiques) et sur la seule parcelle (diagnostic).
+    Cloud Score+ peut manquer pour une tuile : le masque repose alors sur la classification SCL."""
+    near = ee.Geometry(_parcel_geojson).buffer(THUMB_MARGIN_M).bounds()
+    search = ee.Geometry(_search_geojson) if _search_geojson else near
     d0 = ee.Date(date_str)
+    day = lambda c: ee.ImageCollection(c).filterDate(d0, d0.advance(1, "day"))
     n = ee.Dictionary({
-        "s2": ee.ImageCollection(S2_COLLECTION).filterBounds(region).filterDate(d0, d0.advance(1, "day")).size(),
-        "cs": ee.ImageCollection(CSPLUS_COLLECTION).filterBounds(region).filterDate(d0, d0.advance(1, "day")).size(),
+        "s2": day(S2_COLLECTION).filterBounds(search).size(),
+        "cs": day(CSPLUS_COLLECTION).filterBounds(search).size(),
+        "s2_parcel": day(S2_COLLECTION).filterBounds(near).size(),
+        "ids": day(S2_COLLECTION).filterBounds(search).aggregate_array("system:index"),
     }).getInfo()
-    return {"s2": int(n["s2"]), "cs": int(n["cs"])}
+    return {"s2": int(n["s2"]), "cs": int(n["cs"]), "s2_parcel": int(n["s2_parcel"]), "ids": n["ids"]}
 
 
 @cache_data(show_spinner=False, ttl=2 * 3600, max_entries=300)
 def parcel_thumbnail(date_str, parcel_key, params_t, _parcel_geojson, _analysis_geojson,
-                     show_mask=True, mode=THUMB_NATURAL):
+                     show_mask=True, mode=THUMB_NATURAL, _search_geojson=None):
     """
     Retourne l'URL d'une image PNG de la parcelle à la date donnée :
       couleurs naturelles (B4, B3, B2) ou fausses couleurs infrarouges (B8, B4, B3)
@@ -373,16 +377,19 @@ def parcel_thumbnail(date_str, parcel_key, params_t, _parcel_geojson, _analysis_
       · contour blanc : parcelle · contour jaune : zone analysée (après buffer).
     """
     vis = THUMB_VIS.get(mode, THUMB_VIS[THUMB_NATURAL])
-    src = day_sources(date_str, parcel_key, _parcel_geojson)
+    src = day_sources(date_str, parcel_key, _parcel_geojson, _search_geojson)
     if not src["s2"]:
         raise ValueError(f"aucune image Sentinel-2 du {date_str} n'est disponible dans Earth Engine "
-                         "pour cette parcelle (image retirée ou en cours de retraitement). "
-                         "Les valeurs déjà calculées pour cette date restent valables.")
+                         f"(zone de l'analyse : {src['s2']} image, parcelle : {src['s2_parcel']} ; "
+                         f"scores de nuages : {src['cs']}). Les valeurs déjà calculées restent valables.")
     params = dict(params_t)
     parcel = ee.Geometry(_parcel_geojson)
     region = parcel.buffer(THUMB_MARGIN_M).bounds()
     d0 = ee.Date(date_str)
-    s2, prepared = _collections(region, d0, d0.advance(1, "day"), params)
+    # images cherchées sur la zone de l'analyse, comme pour les statistiques (v5.6.3) : depuis fin
+    # octobre 2026, la recherche sur la seule parcelle ne trouvait plus les images récentes
+    search = ee.Geometry(_search_geojson) if _search_geojson else region
+    s2, prepared = _collections(search, d0, d0.advance(1, "day"), params)
 
     img = (s2.select(vis["bands"]).mosaic()
            .visualize(min=vis["min"], max=vis["max"], gamma=vis["gamma"]))
