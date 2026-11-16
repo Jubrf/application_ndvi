@@ -29,6 +29,10 @@ from ndvi_app.config import APP_VERSION
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 MAX_UPLOAD = 60 * 1024 * 1024
 API_VERSION = "v5.1"
+# Version affichée en bas à gauche de l'interface, à changer à chaque mise en ligne.
+# Commit : fourni par Render (RENDER_GIT_COMMIT), le même que dans l'onglet « Events ».
+UI_VERSION = "v5.6.4"
+COMMIT = (os.environ.get("RENDER_GIT_COMMIT") or "")[:7]
 
 app = FastAPI(title="NDVI parcellaire", docs_url=None, redoc_url=None, openapi_url=None)
 store = Store()
@@ -117,7 +121,7 @@ def _file(data, name, mime):
 # ---------------------------------------------------------------- routes
 @app.get("/api/version")
 def version():
-    return {"api": API_VERSION, "engine": APP_VERSION}
+    return {"api": API_VERSION, "engine": APP_VERSION, "ui": UI_VERSION, "commit": COMMIT}
 
 
 @app.post("/api/analyses")

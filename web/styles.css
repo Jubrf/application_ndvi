@@ -290,3 +290,5 @@ details summary { cursor: pointer; }
 .note.warn { color: var(--warn); }
 .side .tool { justify-self: start; font-size: 13px; }
 button:disabled { cursor: default; opacity: .6; }
+
+.verbadge { position: fixed; left: 8px; bottom: 6px; z-index: 50; font-size: 11px; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; pointer-events: auto; }

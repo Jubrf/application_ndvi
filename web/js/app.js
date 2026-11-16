@@ -35,12 +35,14 @@ function Sidebar({ s, setS, info, reset, busy }) {
     <button class="tool" onClick=${reset}>Revenir aux réglages du fichier</button>
     <h3 class="lock">Calcul, verrouillé</h3>
     <p class="note">Fixé par l'analyse ouverte : buffer ${L.buffer_m} m, Cloud Score+ ${fr(L.cs_threshold)}, marge nuages ${L.cloud_buffer_m} m, valeurs aberrantes ${fr(L.iqr_k, 1)} × IQR.</p>
-    <p class="note version">Interface React v5.6 · moteur ${info.server_version}</p>
+    <p class="note version">Interface ${VERSION.ui || "?"}${VERSION.commit ? ` (${VERSION.commit})` : ""} · moteur ${info.server_version}</p>
   </aside>`;
 }
 
 /* ---------------------------------------------------------------- application */
+let VERSION = {};   // version en ligne (/api/version), affichée en bas à gauche
 function App() {
+  const [ver, setVer] = useState(null);
   const [info, setInfo] = useState(null);
   const [geo, setGeo] = useState(null);
   const [data, setDataState] = useState(null);    // dernière réponse « results »
@@ -156,6 +158,7 @@ function App() {
     catch (e) { setGee({ ok: false, message: e.message }); }
   };
   useEffect(() => {
+    getJSON("/api/version").then((v) => { VERSION = v; setVer(v); }).catch(() => {});
     checkGee(false);
     (async () => {
       const [fileRec, ui] = await Promise.all([IDB.get("file"), IDB.get("ui")]);
@@ -245,6 +248,7 @@ function App() {
   const reset = () => setS({ ...uiSettings(info.settings, s.grey) });
   const pg = enabled(page) ? page : "projet";
   return html`<div class=${"app3 p-" + pg}>
+    ${ver && html`<span class="verbadge" title="Version en ligne (et commit, comme dans l'onglet Events de Render)">${ver.ui}${ver.commit ? ` · ${ver.commit}` : ""}</span>`}
     <header class="top">
       <nav class="tabs">
         <span class="brand"><svg width="20" height="20" viewBox="0 0 24 24"><path d="M4 20C4 10 10 4 20 4c0 10-6 16-16 16Z" fill="#1a9850"/><path d="M4 20 14 10" stroke="#fff" stroke-width="1.6"/></svg>NDVI parcellaire</span>
