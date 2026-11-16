@@ -110,14 +110,8 @@ class ParcelSet:
                 "ids_preview": self.ids[:5]}
 
     def geometry(self):
-        return {"parcels": [{"id": pid, "poly": _rings(f["geometry"])}
-                            for pid, f in zip(self.ids, self.features)]}
-
-
-def _rings(geom):
-    geoms = [geom] if geom.geom_type == "Polygon" else list(getattr(geom, "geoms", []))
-    return [[[round(x, 5), round(y, 5)] for x, y in g.simplify(0.00002).exterior.coords]
-            for g in geoms if g.geom_type == "Polygon" and not g.is_empty]
+        from api.engine import map_geometry
+        return map_geometry(self.ids, self.features, self.geoinfo)
 
 
 class ParcelStore:

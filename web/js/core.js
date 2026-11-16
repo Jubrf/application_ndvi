@@ -10,7 +10,7 @@ const html = htm.bind(React.createElement);
    5 lecture (D.lectures), 6 motif (1 + indice D.motifs, 0 = aucun), 7 B11, 8 poids, 9 % clair,
    10 pluie 3 j, 11 humidité du sol, 12 gel, 13 NDVI lissé, 14 statut, 15 pluie veille,
    16 Tmin 7 j, 17 fiabilité]. */
-let D = null, day0 = new Date(), LAST_DATE = 0, PROJ = [], BBOX = [0, 0, 1, 1], GEO_KEY = null;
+let D = null, day0 = new Date(), LAST_DATE = 0, PROJ = [], INNER = [], BBOX = [0, 0, 1, 1], GEO_KEY = null;
 
 const PH = { nu: "#d73027", peu: "#a6d96a", bien: "#1a9850", none: "#c3c9c2" };
 const PH_LABEL = { nu: "Sol nu", peu: "Couvert peu développé", bien: "Couvert bien développé", none: "Pas de courbe" };
@@ -34,17 +34,18 @@ const merc = ([lon, lat]) => {
   const s = Math.sin((lat * Math.PI) / 180);
   return [(lon + 180) / 360, 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)];
 };
-/* Contours projetés pour la carte : {ids, proj, bbox} */
+/* Contours projetés pour la carte : {ids, proj, inner (zone analysée, parcelle moins le buffer), bbox} */
 function makeShapes(parcels) {
   const proj = parcels.map((p) => p.poly.map((ring) => ring.map(merc)));
+  const inner = parcels.map((p) => (p.inner || []).map((ring) => ring.map(merc)));
   let a = [1, 1, 0, 0];
   proj.forEach((rs) => rs.forEach((r) => r.forEach(([x, y]) => { a = [Math.min(a[0], x), Math.min(a[1], y), Math.max(a[2], x), Math.max(a[3], y)]; })));
-  return { ids: parcels.map((p) => p.id), proj, bbox: a };
+  return { ids: parcels.map((p) => p.id), proj, inner, bbox: a };
 }
 
 function setData(payload, geometry) {
-  const polys = Object.fromEntries(geometry.parcels.map((p) => [p.id, p.poly]));
-  payload.parcels.forEach((p) => { p.poly = polys[p.id] || []; });
+  const geo = Object.fromEntries(geometry.parcels.map((p) => [p.id, p]));
+  payload.parcels.forEach((p) => { const g = geo[p.id] || {}; p.poly = g.poly || []; p.inner = g.inner || []; p.buf = g.buf; });
   D = payload;
   // midi et non minuit : au changement d'heure (fin octobre), minuit + k × 24 h tombait à 23 h la
   // veille, et toutes les dates suivantes étaient affichées et demandées un jour trop tôt
@@ -54,6 +55,7 @@ function setData(payload, geometry) {
     GEO_KEY = D.key;
     const sh = makeShapes(D.parcels);
     PROJ = sh.proj;
+    INNER = sh.inner;
     BBOX = sh.bbox;
   }
 }

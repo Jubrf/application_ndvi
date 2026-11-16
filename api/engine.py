@@ -26,6 +26,30 @@ MAX_OPEN = 3            # analyses gardées en mémoire (les plus récentes ; 51
 MAX_INTERPRETATIONS = 3  # jeux de réglages gardés par analyse
 
 
+def map_rings(geom):
+    """Anneaux extérieurs simplifiés (lon, lat, 5 décimales) d'un polygone ou multipolygone."""
+    geoms = [geom] if geom.geom_type == "Polygon" else list(getattr(geom, "geoms", []))
+    return [[[round(x, 5), round(y, 5)] for x, y in g.simplify(0.00002).exterior.coords]
+            for g in geoms if g.geom_type == "Polygon" and not g.is_empty]
+
+
+def map_geometry(ids, features, geoinfo):
+    from shapely.geometry import shape
+    out = []
+    for pid, f, gi in zip(ids, features, geoinfo):
+        gj = gi.get("geojson") if gi else None
+        if isinstance(gj, str):          # fichiers anciens : géométrie écrite en texte
+            import ast
+            gj = ast.literal_eval(gj)
+        try:
+            inner = map_rings(shape(gj)) if gj else []
+        except Exception:
+            inner = []
+        out.append({"id": pid, "poly": map_rings(f["geometry"]), "inner": inner,
+                    "buf": gi.get("buffer_m") if gi else None})
+    return {"parcels": out}
+
+
 class Analysis:
     """Analyse enregistrée ouverte : contenu du fichier + interprétations en cache."""
 
@@ -130,13 +154,9 @@ class Analysis:
         }
 
     def geometry(self):
-        """Contours simplifiés (lon, lat) pour la carte de l'interface."""
-        def rings(geom):
-            geoms = [geom] if geom.geom_type == "Polygon" else list(getattr(geom, "geoms", []))
-            return [[[round(x, 5), round(y, 5)] for x, y in g.simplify(0.00002).exterior.coords]
-                    for g in geoms if g.geom_type == "Polygon" and not g.is_empty]
-        return {"parcels": [{"id": pid, "poly": rings(f["geometry"])}
-                            for pid, f in zip(self.ids, self.features)]}
+        """Contours simplifiés (lon, lat) pour la carte de l'interface, avec la zone analysée
+        (parcelle moins le buffer, en pointillé sur la carte) et le buffer appliqué."""
+        return map_geometry(self.ids, self.features, self.geoinfo)
 
     def payload(self, s):
         """Résultats interprétés, au format compact de l'interface (un tableau par mesure)."""

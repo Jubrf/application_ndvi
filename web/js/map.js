@@ -122,6 +122,14 @@ function MapView({ shapes, fillOf, tipOf, label, sel, setSel, focus }) {
       class="parcel" onMouseEnter=${() => setHover(id)} onMouseLeave=${() => setHover(null)}
       onClick=${() => { if (!drag.current?.moved && setSel) setSel(id); }} />`;
   });
+  // zone analysée (parcelle moins le buffer) : pointillé à l'intérieur de chaque contour
+  const toD = (rings) => rings.map((r) => "M" + r.map(toScreen).map(([x, y]) => x.toFixed(1) + "," + y.toFixed(1)).join("L") + "Z").join("");
+  const inners = !shapes.inner ? [] : shapes.ids.map((id, i) => {
+    const rings = shapes.inner[i];
+    if (!rings || !rings.length || !spots[i] || spots[i].w * ws < 8) return null;
+    return html`<path key=${"z" + id} d=${toD(rings)} fill="none" stroke=${id === sel ? "#ffd400" : "#ffffff"}
+      stroke-width=${id === sel ? 1.6 : 1.1} stroke-dasharray="4 3" stroke-opacity="0.95" pointer-events="none" />`;
+  });
   // parcelle choisie : contour jaune sur liseré sombre, dessiné par-dessus les autres
   const si = sel == null ? -1 : shapes.ids.indexOf(sel);
   const selD = si < 0 ? null : shapes.proj[si].map((r) => "M" + r.map(toScreen).map(([x, y]) => x.toFixed(1) + "," + y.toFixed(1)).join("L") + "Z").join("");
@@ -146,6 +154,7 @@ function MapView({ shapes, fillOf, tipOf, label, sel, setSel, focus }) {
     <svg class="overlay" width=${w} height=${h}>${polys}
       ${selD && html`<path d=${selD} fill="none" stroke="#10201a" stroke-width="5" stroke-linejoin="round" pointer-events="none" />
         <path d=${selD} fill="none" stroke="#ffd400" stroke-width="3" stroke-linejoin="round" pointer-events="none" />`}
+      ${inners}
       ${labels}</svg>
     ${label && html`<div class="map-date">${label}</div>`}
     ${hover != null && tipOf && html`<div class="map-tip">${tipOf(hover)}</div>`}
@@ -164,12 +173,13 @@ function MapView({ shapes, fillOf, tipOf, label, sel, setSel, focus }) {
 /* Carte des phases de l'analyse ouverte au jour `day` (courbe lissée) */
 function PhaseMap({ s, day, sel, setSel, visible, focus }) {
   const byId = useMemo(() => Object.fromEntries(D.parcels.map((p) => [p.id, p])), [D]);
-  const shapes = { ids: D.parcels.map((p) => p.id), proj: PROJ, bbox: BBOX };
+  const shapes = { ids: D.parcels.map((p) => p.id), proj: PROJ, inner: INNER, bbox: BBOX };
   const fillOf = (id) => [PH[phaseOf(curveAt(byId[id], day), s)], visible && !visible.has(id) ? 0.18 : 0.78];
   const tipOf = (id) => {
     const p = byId[id], v = curveAt(p, day);
     return html`<b>${id}</b> · ${fr(p.ha)} ha<br/>NDVI lissé au ${fmtShort(day)} : ${fr(v)} — ${PH_LABEL[phaseOf(v, s)]}<br/>
-      ${`NDVI fin : lissé ${fr(p.ndvi_fin)} · brut ${fr(p.ndvi_brut)}${p.last ? ` (${isoFrShort(p.last)})` : ""}`}`;
+      ${`NDVI fin : lissé ${fr(p.ndvi_fin)} · brut ${fr(p.ndvi_brut)}${p.last ? ` (${isoFrShort(p.last)})` : ""}`}<br/>
+      ${p.inner && p.inner.length ? `Zone analysée (pointillé) : buffer ${p.buf ?? "—"} m` : "Zone analysée vide : parcelle trop petite pour le buffer"}`;
   };
   return html`<${MapView} shapes=${shapes} fillOf=${fillOf} tipOf=${tipOf} sel=${sel} setSel=${setSel} focus=${focus}
     label=${html`<strong>${fmtDay(day)}</strong><span>phase de la courbe lissée ce jour-là</span>`} />`;
