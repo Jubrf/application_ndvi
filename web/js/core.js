@@ -46,7 +46,9 @@ function setData(payload, geometry) {
   const polys = Object.fromEntries(geometry.parcels.map((p) => [p.id, p.poly]));
   payload.parcels.forEach((p) => { p.poly = polys[p.id] || []; });
   D = payload;
-  day0 = new Date(D.start + "T00:00:00");
+  // midi et non minuit : au changement d'heure (fin octobre), minuit + k × 24 h tombait à 23 h la
+  // veille, et toutes les dates suivantes étaient affichées et demandées un jour trop tôt
+  day0 = new Date(D.start + "T12:00:00");
   LAST_DATE = D.dates.length ? D.dates[D.dates.length - 1] : D.nDays - 1;
   if (GEO_KEY !== D.key) {
     GEO_KEY = D.key;
@@ -101,7 +103,7 @@ const isoFrShort = (iso) => (iso ? iso.slice(8, 10) + "/" + iso.slice(5, 7) : "�
 /* Images de l'analyse plus récentes que la dernière mesure retenue (sans mesure pour la parcelle) */
 const missingAfter = (p) => {
   if (!p.last) return 0;
-  const k = Math.round((new Date(p.last + "T00:00:00") - day0) / 864e5);
+  const k = Math.round((new Date(p.last + "T12:00:00") - day0) / 864e5);
   return D.dates.filter((d) => d > k).length;
 };
 /* Courbe incertaine au jour k (entre deux mesures retenues espacées de plus de N jours) */

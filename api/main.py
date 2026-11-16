@@ -31,7 +31,7 @@ MAX_UPLOAD = 60 * 1024 * 1024
 API_VERSION = "v5.1"
 # Version affichée en bas à gauche de l'interface, à changer à chaque mise en ligne.
 # Commit : fourni par Render (RENDER_GIT_COMMIT), le même que dans l'onglet « Events ».
-UI_VERSION = "v5.6.4"
+UI_VERSION = "v5.6.5"
 COMMIT = (os.environ.get("RENDER_GIT_COMMIT") or "")[:7]
 
 app = FastAPI(title="NDVI parcellaire", docs_url=None, redoc_url=None, openapi_url=None)
